@@ -151,6 +151,7 @@ func (c *Collector) Configure(cfg Config) error {
 	c.lastPrune = time.Now()
 	c.config = cfg
 	c.generation++
+	c.runID = randomToken()
 	c.last = nil
 	c.sessionID = 0
 	c.browser = nil
@@ -179,15 +180,14 @@ func (c *Collector) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			status := c.Status()
 			c.mu.Lock()
-			generation := c.generation
+			config, generation := c.config, c.generation
 			c.mu.Unlock()
-			if !status.Config.Enabled {
+			if !config.Enabled {
 				continue
 			}
 			sampleCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-			sample, err := c.sampler.Sample(sampleCtx, status.Config)
+			sample, err := c.sampler.Sample(sampleCtx, config)
 			cancel()
 			c.gate.Lock()
 			c.mu.Lock()
@@ -202,6 +202,7 @@ func (c *Collector) Run(ctx context.Context) {
 				c.warning = err.Error()
 				c.last = nil
 				c.sessionID = 0
+				c.runID = randomToken()
 				c.mu.Unlock()
 			} else {
 				if err = c.Observe(sample, time.Now()); err != nil {
@@ -219,6 +220,9 @@ func (c *Collector) filter(s Sample) (Sample, bool) {
 		return s, false
 	}
 	for _, app := range c.config.ExcludedApps {
+		if strings.TrimSpace(app) == "" {
+			continue
+		}
 		if strings.EqualFold(strings.TrimSpace(app), s.App) || strings.EqualFold(strings.TrimSpace(app), s.AppID) {
 			return s, false
 		}
@@ -281,6 +285,7 @@ func (c *Collector) Observe(sample Sample, at time.Time) error {
 	c.warning = sample.Warning
 	c.lastSample = at.UTC().Format(time.RFC3339)
 	if !ok {
+		c.runID = randomToken()
 		c.last = nil
 		c.sessionID = 0
 		c.lastAt = at
@@ -288,6 +293,9 @@ func (c *Collector) Observe(sample Sample, at time.Time) error {
 	}
 	elapsed := at.Sub(c.lastAt).Seconds()
 	continuous := c.last != nil && elapsed > 0 && elapsed <= 15
+	if c.last != nil && !continuous {
+		c.runID = randomToken()
+	}
 	if continuous {
 		active := 0.0
 		if sample.IdleSeconds < float64(c.config.IdleSeconds) && c.last.IdleSeconds < float64(c.config.IdleSeconds) {
@@ -334,6 +342,7 @@ func (c *Collector) Clear() error {
 	c.sessionID = 0
 	c.browser = nil
 	c.generation++
+	c.runID = randomToken()
 	_, err := c.db.Exec(`DELETE FROM activity_sessions; DELETE FROM edges WHERE source='activity'; DELETE FROM nodes WHERE type IN ('app','window','domain','page');`)
 	return err
 }

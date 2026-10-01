@@ -61,7 +61,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
    setList(snap.nodes); setEdgeList(snap.edges); setLoading(false); setError("");
    if (!initialized.current && snap.nodes.length) { fit(); initialized.current = true; }
    if (pending.current != null) focus(pending.current);
-   props.current.onStatus(`${snap.nodes.length} notes · ${snap.edges.length} relationships`);
+   props.current.onStatus(`${snap.nodes.length} nodes (${snap.nodes.filter(n=>n.type==="note").length} notes) · ${snap.edges.length} relationships`);
   } catch (e) { if (active.current && seq === sequence.current) { setError(String(e)); setLoading(false); props.current.onStatus(`Graph refresh failed: ${String(e)}`); } throw e; }
  }, [fit, focus]);
  useImperativeHandle(ref, () => ({ focusNode: focus, refresh: load, fit }), [focus, load, fit]);

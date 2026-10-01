@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -83,5 +82,4 @@ func TestActivityControlsGraphAndPrivacy(t *testing.T) {
 	}
 	cfg.IdleSeconds = 0
 	call(t, router, "PUT", "/api/activity/config", cfg, 400, nil)
-	_ = http.MethodGet
 }
