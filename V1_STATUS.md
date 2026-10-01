@@ -122,10 +122,14 @@ These are deliberate limits or further hardening work, not silently completed:
   and a second Chromium dashboard/control workflow. Tests disable live recording.
 
 Native sampling compiles and deterministic workflows pass; live macOS permission
-configuration and real extension installation were not performed. Background means
-while the backend runs, not an installed login service. Private-window detection
-without the extension is best-effort, and full history aggregation is not optimized
-for large datasets. Active ratio is an input-recency estimate, not productivity.
+configuration and real extension installation were not performed. Background
+tracking runs while the backend is running; an optional per-user macOS LaunchAgent
+can start it at Aqua login and is never installed automatically. Private-window
+detection without the extension is best-effort, and full history aggregation is not
+optimized for large datasets. Active ratio is an input-recency estimate, not
+productivity. The safe install/uninstall workflow is documented in the README. The Bash safety tests pass without installing a service; actual
+`launchd` bootstrap, login/logout, Accessibility grant, and uninstall are not
+exercised outside a user-approved macOS session.
 
 ## Still deferred: remaining V2/V3
 

@@ -31,14 +31,54 @@ The Go toolchain version is specified in [go.mod](backend/go.mod). The frontend
 uses Next.js 15, React 18, TypeScript, and npm. See
 [package.json](frontend/package.json) for dependency versions.
 
+## Optional macOS login service
+
+The opt-in [LaunchAgent manager](scripts/macos-login-agent.sh) installs a
+**per-user** background service under `~/Library/LaunchAgents`; it never uses
+`sudo`, modifies system-wide locations, or installs automatically. The service is
+limited to the signed-in Aqua GUI session; it is not a headless boot daemon. Run
+from the repository checkout:
+
+```bash
+bash scripts/macos-login-agent.sh install   # asks before building/installing/enabling
+bash scripts/macos-login-agent.sh status
+bash scripts/macos-login-agent.sh logs
+bash scripts/macos-login-agent.sh stop      # stops this login; starts at next login
+bash scripts/macos-login-agent.sh start
+bash scripts/macos-login-agent.sh restart
+bash scripts/macos-login-agent.sh uninstall # asks, disables/removes service only
+```
+
+Install builds a standalone server at
+`~/Library/Application Support/Dendrite/bin/dendrite-server`, so routine source
+changes do not silently replace the running binary; rerun `install` and confirm
+to update it. Updates retain rollback copies until the new service starts, and
+restore the previous binary/configuration if `launchd` rejects the update. The
+service uses the checkout directory containing the script as `DENDRITE_ROOT`, so
+keep that folder and its `notes/` and `data/` directories in place. An update
+requires the existing service to be loaded (run `start` first if you previously
+stopped it). `launchd`
+restarts it after failures and registers it for the current user's Aqua login
+session only. The default local API is `127.0.0.1:8080`; the service
+logs to `~/Library/Logs/Dendrite/`. `status` shows service/API state; the Activity
+dashboard shows whether recording itself is paused. The Accessibility grant may
+need to target the installed binary named above (System Settings → Privacy &
+Security → Accessibility). Uninstall disables/removes only the LaunchAgent plist:
+it deliberately preserves your checkout, notes, SQLite history, binary, and logs.
+Run `bash scripts/macos-login-agent.test.sh` to validate the manager's safety
+checks without installing a service. If `127.0.0.1:8080` is occupied by another
+server, stop it before installing the LaunchAgent; the installer refuses to create
+a duplicate API listener.
+
 ## Background activity tracking
 
 Open **Activity** to see what you use, foreground duration, active/idle estimates,
 a usage chart, and a recent timeline. Recording starts with the backend on first
 run (per the requested opt-in), continues when the browser UI is closed, and
-remembers **Stop recording** across restarts. It does not yet install an OS login
-service: the Go backend must remain running. Set `DENDRITE_ACTIVITY_AUTOSTART=false`
-to force recording off (also used by test servers).
+remembers **Stop recording** across restarts. By default the Go backend must remain
+running. If you want tracking after signing in without manually opening a terminal,
+install the optional per-user macOS LaunchAgent above. Set
+`DENDRITE_ACTIVITY_AUTOSTART=false` to force recording off (also used by tests).
 
 The macOS collector uses Cocoa/CoreGraphics to sample foreground application and
 time since last system input every five seconds. With Accessibility permission it
@@ -266,6 +306,8 @@ Tests force real activity recording off. Activity tests inject deterministic sam
 and cover timing, idle/sleep, exclusions, pause persistence, URL redaction, graph
 scores, retention, and authenticated hints. Extension privacy tests run with
 `node --test browser-extension/background.test.cjs` from the repository root.
+The optional launch-service manager safety checks run with
+`bash scripts/macos-login-agent.test.sh`; they do not install the service.
 
 ## Remaining boundaries
 
