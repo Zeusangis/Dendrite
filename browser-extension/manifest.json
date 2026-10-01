@@ -1,0 +1,12 @@
+{
+ "manifest_version": 3,
+ "name": "Dendrite Local Activity",
+ "version": "0.1.0",
+ "description": "Opt-in active tab metadata for your local Dendrite graph. No page contents or keystrokes.",
+ "permissions": ["tabs", "storage", "alarms"],
+ "host_permissions": ["http://127.0.0.1:8080/*", "http://localhost:8080/*"],
+ "background": { "service_worker": "background.js" },
+ "options_page": "options.html",
+ "action": { "default_title": "Dendrite activity settings" },
+ "incognito": "not_allowed"
+}

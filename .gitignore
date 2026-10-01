@@ -1,0 +1,31 @@
+# Runtime data (SQLite database)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+nohup.out
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/test-results/
+frontend/playwright-report/
+
+# Go
+backend/dendrite
+backend/server
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local

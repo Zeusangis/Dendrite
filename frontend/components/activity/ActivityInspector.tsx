@@ -1,0 +1,11 @@
+"use client";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import type { ActivityUsage, Note, RelatedNode } from "@/lib/types";
+import { duration } from "./ActivityPanel";
+export function ActivityInspector({nodeId,onOpen}:{nodeId:number;onOpen:(id:number)=>void}){
+ const [node,setNode]=useState<Note|null>(null),[usage,setUsage]=useState<ActivityUsage|null>(null),[related,setRelated]=useState<RelatedNode[]>([]),[error,setError]=useState("");
+ useEffect(()=>{let active=true;const load=()=>Promise.all([api.node(nodeId),api.nodeActivity(nodeId),api.related(nodeId)]).then(([n,u,r])=>{if(active){setNode(n);setUsage(u);setRelated(r);setError("");}}).catch(e=>{if(active)setError(String(e));});load();const timer=setInterval(load,5000);return()=>{active=false;clearInterval(timer);};},[nodeId]);
+ return <div className="activity-inspector">{error&&<p role="alert" className="error">{error}</p>}{node&&usage?<><h2>{node.title}</h2><p>{node.type} · automatically generated</p><dl><dt>Total foreground time</dt><dd>{duration(usage.total_seconds)}</dd><dt>Active time</dt><dd>{duration(usage.active_seconds)}</dd><dt>Active ratio</dt><dd>{Math.round(usage.total_seconds?usage.active_seconds/usage.total_seconds*100:0)}%</dd><dt>Sessions</dt><dd>{usage.sessions}</dd><dt>Last used</dt><dd>{new Date(usage.last_seen).toLocaleString()}</dd></dl><p>Active means system input was recent, not proof of attention or productivity.</p><h3>Automatic relationships</h3>{related.map(({node:n,edge})=><section key={edge.id}><button onClick={()=>onOpen(n.id)}>{n.title} · {Math.round(edge.strength)}/150</button><ul>{edge.reason?.split("; ").map(reason=><li key={reason}>{reason}</li>)}</ul></section>)}</>:<p>Loading usage…</p>}
+ <style jsx>{`.activity-inspector{padding:20px;display:flex;flex-direction:column;gap:14px;overflow-wrap:anywhere}h2{font-size:18px}h3{font-size:14px}p,dt,li{font-size:12px;color:var(--text-dim)}dl{display:grid;grid-template-columns:1fr 1fr;gap:8px}dd{text-align:right}section{border-top:1px solid var(--border);padding-top:10px}section button{width:100%;text-align:left}ul{padding-left:18px;margin-top:6px;display:flex;flex-direction:column;gap:4px}`}</style></div>;
+}

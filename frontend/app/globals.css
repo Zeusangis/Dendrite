@@ -1,0 +1,88 @@
+:root {
+  --bg: #0b0e14;
+  --bg-panel: #11151f;
+  --bg-hover: #1a2030;
+  --border: #232a3a;
+  --text: #dde3ee;
+  --text-dim: #8b93a7;
+  --accent: #6ea8fe;
+  --accent-dim: #3b5bdb;
+  --edge: #2e3a52;
+  --edge-strong: #6ea8fe;
+  --danger: #ff6b6b;
+  --good: #51cf66;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.error { color: var(--danger); font-size: 12px; line-height: 1.5; }
+
+button:hover {
+  background: var(--border);
+  border-color: var(--accent-dim);
+}
+
+button.primary {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+  color: #fff;
+}
+
+button.primary:hover {
+  background: var(--accent);
+}
+
+input,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  outline: none;
+}
+
+input:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

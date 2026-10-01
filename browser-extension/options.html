@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Dendrite browser tracking</title><style>body{font:15px system-ui;max-width:650px;margin:40px auto;padding:20px;background:#11151f;color:#dde3ee}label{display:block;margin:18px 0}input:not([type=checkbox]),select,textarea{display:block;width:100%;padding:8px;margin-top:8px;box-sizing:border-box}button{padding:10px 20px}p{line-height:1.6}#status{color:#6ea8fe}</style></head><body>
+<h1>Dendrite browser activity</h1><p>Reports only the active tab in the focused window to your local API. It never reads page contents, screenshots, or keystrokes. Private/incognito tabs are excluded. URLs omit credentials, queries, and fragments; page paths and titles may still be sensitive.</p>
+<label><input id="enabled" type="checkbox">Enable browser metadata recording</label>
+<label>Browser application name<select id="app"><option>Google Chrome</option><option>Brave Browser</option><option>Microsoft Edge</option><option>Arc</option><option>Chromium</option></select></label>
+<label>Pairing token from Dendrite’s Activity dashboard<input id="token" type="password" autocomplete="off"></label>
+<label>Excluded domains (one per line, includes subdomains)<textarea id="excludedDomains" rows="5"></textarea></label>
+<button id="save">Save preferences</button><p id="status" role="status"></p>
+<p>Dendrite&apos;s Stop recording control takes precedence. Keep this extension disabled in browser profiles you do not want to record. Backend exclusions also apply; adding exclusions does not erase old data.</p><script src="options.js"></script></body></html>
