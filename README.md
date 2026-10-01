@@ -2,7 +2,8 @@
 
 Markdown notes are the source of truth. A Go API synchronizes derived metadata
 into SQLite; a Next.js/React canvas reveals wikilinks and explainable inferred
-relationships. Everything runs locally. No activity collection or AI service is enabled.
+relationships. Everything runs locally. macOS activity collection now starts with
+the backend unless paused; no AI service is enabled.
 
 ## Run locally
 
@@ -29,6 +30,75 @@ refreshes immediately, including the selected note inspector.
 The Go toolchain version is specified in [go.mod](backend/go.mod). The frontend
 uses Next.js 15, React 18, TypeScript, and npm. See
 [package.json](frontend/package.json) for dependency versions.
+
+## Background activity tracking
+
+Open **Activity** to see what you use, foreground duration, active/idle estimates,
+a usage chart, and a recent timeline. Recording starts with the backend on first
+run (per the requested opt-in), continues when the browser UI is closed, and
+remembers **Stop recording** across restarts. It does not yet install an OS login
+service: the Go backend must remain running. Set `DENDRITE_ACTIVITY_AUTOSTART=false`
+to force recording off (also used by test servers).
+
+The macOS collector uses Cocoa/CoreGraphics to sample foreground application and
+time since last system input every five seconds. With Accessibility permission it
+also reads the focused window title and, when exposed by a browser, its document
+URL. Grant access to the server/launching terminal in **System Settings → Privacy &
+Security → Accessibility**. It never requests admin access or silently grants
+permissions. Without permission, app/idle tracking still works and the dashboard
+shows a warning. A native macOS build requires cgo and the Xcode command-line tools;
+non-macOS/cgo-disabled builds clearly report native tracking unsupported.
+
+**Active time is an estimate**, not proof of attention or productivity: system
+input within the default 60-second threshold counts as active. Passive reading may
+be classified as idle. Sleep, locked screens, excluded contexts, pauses, and gaps
+longer than 15 seconds are not charged as active use. No keys, input event contents,
+screenshots, or page contents are recorded.
+
+### Browser integration
+
+For reliable Chromium active-tab metadata, install the unpacked
+[browser extension](browser-extension/manifest.json):
+
+1. Open Chrome/Brave/Edge extensions, enable Developer mode, and **Load unpacked**
+   the `browser-extension` folder.
+2. In Dendrite **Activity → Privacy, retention & browser setup**, reveal the private
+   pairing token.
+3. Open extension options, paste it, select the browser's application name, and
+   explicitly enable recording. The extension sends metadata only to the local API
+   on port 8080; backend pause/exclusions take precedence.
+
+The extension reports only the active tab in the focused window, never page text.
+It skips private/incognito windows and supports domain exclusions. Native private
+window detection is best-effort from title text and cannot guarantee detection in
+all browsers/languages; **exclude sensitive browsers/profiles or pause tracking**
+when privacy is uncertain. URLs remove credentials, query strings, and fragments;
+paths and titles may still contain sensitive information. Native Safari/Firefox URL
+support depends on accessibility attributes; the bundled extension is Chromium-only.
+
+### Automatically generated graph and strengths
+
+Every five-second graph sync derives typed app/window/domain/page nodes from
+retained sessions, plus membership and sequential context-switch edges. Title/tag/
+entity matches connect activity contexts to existing notes. Activity evidence lives
+in SQLite (it is not written into the Markdown vault). Node colors distinguish
+notes (blue), apps (purple), domains (teal), pages (amber), and windows (muted purple).
+Select an activity node to inspect total time, active time/ratio, sessions, and reasons.
+
+Membership score (0–150) = `20 + min(60,12*log1p(activeMinutes)) +
+min(35,10*log1p(sessions)) + min(20,20*activeRatio)`. Context-switch scores use
+`15 + min(90,25*log1p(switches)) + min(25,6*log1p(activeMinutes))`; note-concept
+matches add 20 to the membership-style score. Repeated usage and active exposure
+strengthen links automatically. Edges explain their evidence; temporal adjacency
+is not presented as proof of a semantic relationship.
+
+Activity data has configurable 1–365-day retention (default 30), password-manager
+app exclusions, user app/domain exclusions, and explicit **Delete activity history**.
+Exclusions affect future collection; they do not erase already recorded history.
+Pruning also runs during sync while recording is paused. Activity is not included
+in the Markdown backup or undo history. The local SQLite database and pairing token
+are private; never publish them. Summary time-range clipping is proportional for
+sessions crossing the boundary, rather than event-perfect accounting.
 
 ## V1 features
 
@@ -135,6 +205,13 @@ Showing weak links does not change importance or the saved threshold.
 | GET | `/api/history` | available undo/redo labels |
 | POST | `/api/history/undo` | reverse last application note change |
 | POST | `/api/history/redo` | reapply next undone note change |
+| GET | `/api/activity` | collector status, config and permission warning |
+| PUT | `/api/activity/config` | enabled/privacy/idle/retention/exclusions config |
+| GET | `/api/activity/summary?days=1` | usage metrics and recent sessions |
+| GET | `/api/nodes/:id/activity` | generated node usage statistics |
+| GET | `/api/activity/pairing` | private browser pairing token |
+| POST | `/api/activity/browser` | paired browser hint, bearer token required |
+| DELETE | `/api/activity/data?confirm=true` | irreversible activity-data deletion |
 
 Note endpoints also accept a vault-relative path in place of the numeric ID.
 Unsupported methods return 405; mutation JSON is limited to 8 MiB. Custom API
@@ -148,6 +225,7 @@ uses the current disk content as the expected state.
 | `DENDRITE_ADDR` | `127.0.0.1:8080` | API listen address |
 | `DENDRITE_ROOT` | repository root inferred from cwd | parent of `notes/` and `data/` |
 | `DENDRITE_API_ORIGIN` | `http://127.0.0.1:8080` | Next.js API proxy target |
+| `DENDRITE_ACTIVITY_AUTOSTART` | enabled on first run | set `false` to force recording off; otherwise saved pause state wins |
 
 Frontend rewrites are configured in [next.config.js](frontend/next.config.js);
 set the proxy origin before starting or building Next.js. Browser requests with
@@ -184,6 +262,10 @@ The Chromium suite starts its own temporary vault/API on `18080` and frontend on
 selection, drag/unpin persistence, rename, failed save preservation, filters,
 settings, import, undo/redo, and mobile layout. Existing servers are not reused.
 Override `DENDRITE_TEST_API_PORT` / `DENDRITE_TEST_UI_PORT` if occupied.
+Tests force real activity recording off. Activity tests inject deterministic samples
+and cover timing, idle/sleep, exclusions, pause persistence, URL redaction, graph
+scores, retention, and authenticated hints. Extension privacy tests run with
+`node --test browser-extension/background.test.cjs` from the repository root.
 
 ## Remaining boundaries
 
@@ -197,6 +279,10 @@ Override `DENDRITE_TEST_API_PORT` / `DENDRITE_TEST_UI_PORT` if occupied.
 - Undo/redo is for notes only. Import metadata is not included in its snapshots.
 - UI is tested in Chromium only; comprehensive accessibility, Safari/Firefox,
   crash-recovery, and fault-injection testing remain.
-- No semantic search, collectors, AI, or 3D. Those remain V2/V3 work.
+- Application/window/browser usage tracking is implemented. File/terminal/Git,
+  media/calendar collectors, semantic search, AI, and 3D remain future work.
+- Native collection compiles on macOS, but live OS permissions and extension
+  installation require user setup; automated tests inject samples and never record
+  the user's actual desktop. Large activity histories need incremental aggregation.
 
 See [V1 status](V1_STATUS.md) for the current delivery and verification summary.

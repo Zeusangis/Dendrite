@@ -103,11 +103,34 @@ These are deliberate limits or further hardening work, not silently completed:
   accessibility, sustained performance, and broader fault injection remain.
 - Local single-user service only; no network authentication or public deployment.
 
-## Intentionally deferred: V2/V3
+## Added after V1: requested activity-tracking slice
 
-Application/browser/file/terminal/Git activity collectors, PDFs/media/calendar
- ingestion, opt-in pausable tracking, AI extraction/discovery/summaries/queries,
-semantic search, and optional 3D remain unimplemented as specified by the roadmap.
+- macOS Cocoa/CoreGraphics foreground-app and idle sampler; authorized Accessibility
+  window-title/document-URL sampling, explicit permission warnings, unsupported
+  platform fallback, and no keystroke/screenshot/page-content capture.
+- Initially enabled with the user's opt-in; persistent Stop/Resume, privacy toggles,
+  app/domain exclusions, URL redaction, lock/private suppression, bounded intervals,
+  sleep-gap exclusion, retention and explicit irreversible data deletion.
+- SQLite sessions and automatic app/window/domain/page graph projections with
+  evidence-based strengths, context switches, note-concept relationships, and usage
+  inspectors. No generated activity content is written into Markdown notes.
+- Activity dashboard: total/active/idle time, ratio, app chart, recent timeline,
+  privacy/retention controls, and browser pairing.
+- Opt-in Chromium MV3 integration: authenticated local hints, focused active tabs
+  only, private suppression, domain exclusions, and no content scripts.
+- Backend deterministic activity and API integration tests, extension privacy tests,
+  and a second Chromium dashboard/control workflow. Tests disable live recording.
+
+Native sampling compiles and deterministic workflows pass; live macOS permission
+configuration and real extension installation were not performed. Background means
+while the backend runs, not an installed login service. Private-window detection
+without the extension is best-effort, and full history aggregation is not optimized
+for large datasets. Active ratio is an input-recency estimate, not productivity.
+
+## Still deferred: remaining V2/V3
+
+File/terminal/Git activity ingestion, PDFs/media/calendar ingestion, AI extraction/
+discovery/summaries/queries, semantic search, and optional 3D remain unimplemented.
 
 ## Assessment
 

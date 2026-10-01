@@ -142,7 +142,6 @@ type evidence struct {
 	Seconds float64
 	Count   int
 	Kind    string
-	Concept string
 }
 
 // Strength combines active exposure, repetition and active fraction; bounded
