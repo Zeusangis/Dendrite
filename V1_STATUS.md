@@ -114,15 +114,20 @@ These are deliberate limits or further hardening work, not silently completed:
 - SQLite sessions and automatic app/window/domain/page graph projections with
   evidence-based strengths, context switches, note-concept relationships, and usage
   inspectors. No generated activity content is written into Markdown notes.
-- Activity dashboard: total/active/idle time, ratio, app chart, recent timeline,
-  privacy/retention controls, and browser pairing.
+- Activity dashboard: total/active/idle time, ratio, daily and Monday-based weekly
+  comparisons for app usage, active/idle time, and context switches; selectable
+  ranges, accessible exact-data tables, recent timeline, privacy controls, and pairing.
 - Opt-in Chromium MV3 integration: authenticated local hints, focused active tabs
   only, private suppression, domain exclusions, and no content scripts.
 - Backend deterministic activity and API integration tests, extension privacy tests,
-  and a second Chromium dashboard/control workflow. Tests disable live recording.
+  and a Chromium dashboard workflow for day/week charts, metric selection, and privacy
+  controls. Tests disable live recording.
 
 Native sampling compiles and deterministic workflows pass; live macOS permission
-configuration and real extension installation were not performed. Background
+configuration and real extension installation were not performed. The chart-specific
+Playwright workflow was added, but could not run in this checkout because its
+Chromium headless executable is not installed (launch failed before test execution).
+Background
 tracking runs while the backend is running; an optional per-user macOS LaunchAgent
 can start it at Aqua login and is never installed automatically. Private-window
 detection without the extension is best-effort, and full history aggregation is not

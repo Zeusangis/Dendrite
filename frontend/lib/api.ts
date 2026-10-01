@@ -1,4 +1,4 @@
-import type { ActivityConfig, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
+import type { ActivityConfig, ActivitySeries, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
  const res = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers }, cache: "no-store" });
@@ -13,6 +13,7 @@ export const api = {
  activity: () => request<ActivityStatus>("/api/activity"),
  configureActivity: (config: ActivityConfig) => request<ActivityStatus>("/api/activity/config",json("PUT",config)),
  activitySummary: (days: number) => request<ActivitySummary>(`/api/activity/summary?days=${days}`),
+ activitySeries: (days: number, granularity: "day" | "week") => request<ActivitySeries>(`/api/activity/series?days=${days}&granularity=${granularity}`),
  nodeActivity: (id: number) => request<ActivityUsage>(`/api/nodes/${id}/activity`),
  activityPairing: () => request<{token: string}>("/api/activity/pairing"),
  clearActivity: () => request<{deleted: boolean}>("/api/activity/data?confirm=true",json("DELETE")),

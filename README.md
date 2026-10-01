@@ -72,8 +72,10 @@ a duplicate API listener.
 
 ## Background activity tracking
 
-Open **Activity** to see what you use, foreground duration, active/idle estimates,
-a usage chart, and a recent timeline. Recording starts with the backend on first
+Open **Activity** to compare app usage, active/idle time, and observed context
+switches across calendar days or Monday-starting weeks. Choose a 7-, 30-, or
+90-day range; charts include an accessible exact-data table. The dashboard also
+shows foreground duration and a recent timeline. Recording starts with the backend on first
 run (per the requested opt-in), continues when the browser UI is closed, and
 remembers **Stop recording** across restarts. By default the Go backend must remain
 running. If you want tracking after signing in without manually opening a terminal,
@@ -248,6 +250,7 @@ Showing weak links does not change importance or the saved threshold.
 | GET | `/api/activity` | collector status, config and permission warning |
 | PUT | `/api/activity/config` | enabled/privacy/idle/retention/exclusions config |
 | GET | `/api/activity/summary?days=1` | usage metrics and recent sessions |
+| GET | `/api/activity/series?days=30&granularity=day` | daily or weekly app usage, active/idle time, and context-switch buckets; weeks at range boundaries may be partial |
 | GET | `/api/nodes/:id/activity` | generated node usage statistics |
 | GET | `/api/activity/pairing` | private browser pairing token |
 | POST | `/api/activity/browser` | paired browser hint, bearer token required |
@@ -304,7 +307,8 @@ settings, import, undo/redo, and mobile layout. Existing servers are not reused.
 Override `DENDRITE_TEST_API_PORT` / `DENDRITE_TEST_UI_PORT` if occupied.
 Tests force real activity recording off. Activity tests inject deterministic samples
 and cover timing, idle/sleep, exclusions, pause persistence, URL redaction, graph
-scores, retention, and authenticated hints. Extension privacy tests run with
+scores, retention, series aggregation, and authenticated hints. The Chromium suite
+also covers daily/weekly chart controls and accessible chart data tables. Extension privacy tests run with
 `node --test browser-extension/background.test.cjs` from the repository root.
 The optional launch-service manager safety checks run with
 `bash scripts/macos-login-agent.test.sh`; they do not install the service.

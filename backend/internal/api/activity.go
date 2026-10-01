@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zeusangis/dendrite/internal/activity"
 )
@@ -37,6 +38,22 @@ func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, h.Activity.Status())
+	case "/series":
+		if !method(w, r, "GET") {
+			return
+		}
+		days, _ := strconv.Atoi(r.URL.Query().Get("days"))
+		granularity := r.URL.Query().Get("granularity")
+		if granularity != "" && granularity != "day" && granularity != "week" {
+			writeErr(w, 400, "granularity must be day or week")
+			return
+		}
+		series, err := activity.GetSeries(h.DB, days, granularity, time.Now())
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, series)
 	case "/summary":
 		if !method(w, r, "GET") {
 			return
