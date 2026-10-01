@@ -61,6 +61,9 @@ export interface ActivityStatus { config: ActivityConfig; supported: boolean; wa
 export interface ActivityUsage { node_id: number; title: string; type: string; total_seconds: number; active_seconds: number; sessions: number; last_seen: string }
 export interface ActivitySession { id: number; app: string; app_id: string; window_title: string; domain: string; url: string; started_at: string; ended_at: string; total_seconds: number; active_seconds: number; samples: number }
 export interface ActivitySummary { total_seconds: number; active_seconds: number; active_ratio: number; usage: ActivityUsage[]; recent: ActivitySession[] }
+export interface ActivitySeriesApp { app: string; app_id: string; total_seconds: number; active_seconds: number }
+export interface ActivitySeriesBucket { start: string; label: string; total_seconds: number; active_seconds: number; idle_seconds: number; context_switches: number; apps: ActivitySeriesApp[] }
+export interface ActivitySeries { granularity: "day" | "week"; days: number; apps: string[]; app_ids: string[]; buckets: ActivitySeriesBucket[] }
 
 export interface Settings { min_auto_edge_strength: number }
 export interface HistoryState { undo: string; redo: string }

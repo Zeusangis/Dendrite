@@ -74,6 +74,13 @@ func TestActivityControlsGraphAndPrivacy(t *testing.T) {
 	if summary.TotalSeconds != 5 {
 		t.Fatal("paused recording", summary)
 	}
+	var series activity.Series
+	call(t, router, "GET", "/api/activity/series?days=7&granularity=day", nil, 200, &series)
+	if series.Granularity != "day" || len(series.Buckets) != 7 {
+		t.Fatal("unexpected daily series", series)
+	}
+	call(t, router, "GET", "/api/activity/series?granularity=month", nil, 400, nil)
+	call(t, router, "POST", "/api/activity/series", nil, 405, nil)
 	call(t, router, "DELETE", "/api/activity/data", nil, 400, nil)
 	call(t, router, "DELETE", "/api/activity/data?confirm=true", nil, 200, nil)
 	call(t, router, "GET", "/api/graph", nil, 200, &snap)
