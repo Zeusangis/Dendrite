@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -177,35 +178,93 @@ func ReplaceEntities(db *sql.DB, noteID int64, ents []Entity) error {
 	return tx.Commit()
 }
 
-// ReplaceAutoEdges deletes all automatic edges and inserts the given set,
-// as one transaction so the graph is never partially updated.
+// EdgeSourcePriority makes ownership independent of producer rebuild order.
+func EdgeSourcePriority(source string) int {
+	switch source {
+	case "explicit":
+		return 4
+	case "activity":
+		return 3
+	case "automatic":
+		return 2
+	case "ai":
+		return 1
+	}
+	return 0
+}
+
 func ReplaceAutoEdges(db *sql.DB, edges []Edge) error {
+	return ReplaceEdgeEvidence(db, []string{"automatic", "explicit"}, edges)
+}
+
+// ReplaceEdgeEvidence retains losing producers so they can be restored when
+// higher-priority evidence expires. The public graph remains one edge per pair.
+func ReplaceEdgeEvidence(db *sql.DB, sources []string, edges []Edge) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	if _, err := tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS rebuilt_pairs (source_id INTEGER, target_id INTEGER, PRIMARY KEY(source_id, target_id)); DELETE FROM rebuilt_pairs;`); err != nil {
-		return err
+	allowed := map[string]bool{}
+	for _, source := range sources {
+		allowed[source] = true
+		if _, err = tx.Exec(`DELETE FROM edge_evidence WHERE source=?`, source); err != nil {
+			return err
+		}
 	}
 	for _, e := range edges {
-		if _, err := tx.Exec(`INSERT INTO rebuilt_pairs VALUES (?, ?)`, e.SourceID, e.TargetID); err != nil {
-			return err
+		if !allowed[e.Source] {
+			return fmt.Errorf("edge producer does not own source %q", e.Source)
 		}
-		if _, err := tx.Exec(`
-			INSERT INTO edges (source_id, target_id, strength, relationship_type, source, reason, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(source_id, target_id) DO UPDATE SET
-				strength = excluded.strength,
-				relationship_type = excluded.relationship_type,
-				reason = excluded.reason,
-				source = excluded.source`,
-			e.SourceID, e.TargetID, e.Strength, e.RelationshipType, e.Source, e.Reason, nowISO()); err != nil {
+		if e.SourceID == e.TargetID {
+			continue
+		}
+		if e.SourceID > e.TargetID {
+			e.SourceID, e.TargetID = e.TargetID, e.SourceID
+		}
+		if _, err = tx.Exec(`INSERT INTO edge_evidence(source_id,target_id,source,strength,relationship_type,reason) VALUES(?,?,?,?,?,?) ON CONFLICT(source_id,target_id,source) DO UPDATE SET strength=excluded.strength,relationship_type=excluded.relationship_type,reason=excluded.reason WHERE excluded.strength>=edge_evidence.strength`, e.SourceID, e.TargetID, e.Source, e.Strength, e.RelationshipType, e.Reason); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`DELETE FROM edges WHERE source IN ('automatic','explicit') AND NOT EXISTS (SELECT 1 FROM rebuilt_pairs p WHERE p.source_id = edges.source_id AND p.target_id = edges.target_id)`); err != nil {
+	rows, err := tx.Query(`SELECT source_id,target_id,source,strength,relationship_type,reason FROM edge_evidence ORDER BY source_id,target_id,source`)
+	if err != nil {
+		return err
+	}
+	winners := map[[2]int64]Edge{}
+	for rows.Next() {
+		var e Edge
+		if err = rows.Scan(&e.SourceID, &e.TargetID, &e.Source, &e.Strength, &e.RelationshipType, &e.Reason); err != nil {
+			rows.Close()
+			return err
+		}
+		pair := [2]int64{e.SourceID, e.TargetID}
+		old, ok := winners[pair]
+		if !ok || EdgeSourcePriority(e.Source) > EdgeSourcePriority(old.Source) {
+			winners[pair] = e
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	pairs := make([][2]int64, 0, len(winners))
+	for pair := range winners {
+		pairs = append(pairs, pair)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i][0] == pairs[j][0] {
+			return pairs[i][1] < pairs[j][1]
+		}
+		return pairs[i][0] < pairs[j][0]
+	})
+	for _, pair := range pairs {
+		e := winners[pair]
+		if _, err = tx.Exec(`INSERT INTO edges(source_id,target_id,strength,relationship_type,source,reason,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(source_id,target_id) DO UPDATE SET strength=excluded.strength,relationship_type=excluded.relationship_type,source=excluded.source,reason=excluded.reason`, e.SourceID, e.TargetID, e.Strength, e.RelationshipType, e.Source, e.Reason, nowISO()); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`DELETE FROM edges WHERE NOT EXISTS (SELECT 1 FROM edge_evidence v WHERE v.source_id=edges.source_id AND v.target_id=edges.target_id)`); err != nil {
 		return err
 	}
 	return tx.Commit()

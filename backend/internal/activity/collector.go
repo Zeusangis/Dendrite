@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 )
@@ -145,7 +143,7 @@ func (c *Collector) Configure(cfg Config) error {
 	if err := c.persist(cfg); err != nil {
 		return err
 	}
-	if _, err := c.db.Exec(`DELETE FROM activity_sessions WHERE ended_at<?`, time.Now().AddDate(0, 0, -cfg.RetentionDays).UTC().Format(time.RFC3339Nano)); err != nil {
+	if err := ReconcilePrivacy(c.db, cfg, time.Now()); err != nil {
 		return err
 	}
 	c.lastPrune = time.Now()
@@ -170,6 +168,12 @@ func (c *Collector) Browser(hint BrowserHint) {
 		hint.Private = true
 	}
 
+	ctx, ok := NormalizeContext(ActivityContext{App: hint.App, URL: hint.URL, PageTitle: hint.Title, Private: hint.Private, Focused: hint.Focused}, c.config)
+	if !ok {
+		hint.Private, hint.URL, hint.Title = true, "", ""
+	} else {
+		hint.App, hint.URL, hint.Title = ctx.App, ctx.URL, ctx.PageTitle
+	}
 	c.browser = &hint
 }
 func (c *Collector) Run(ctx context.Context) {
@@ -216,50 +220,7 @@ func (c *Collector) Run(ctx context.Context) {
 	}
 }
 func (c *Collector) filter(s Sample) (Sample, bool) {
-	if s.App == "" || s.Locked || s.Private || math.IsNaN(s.IdleSeconds) || math.IsInf(s.IdleSeconds, 0) || s.IdleSeconds < 0 {
-		return s, false
-	}
-	for _, app := range c.config.ExcludedApps {
-		if strings.TrimSpace(app) == "" {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(app), s.App) || strings.EqualFold(strings.TrimSpace(app), s.AppID) {
-			return s, false
-		}
-	}
-	lowerTitle := strings.ToLower(s.WindowTitle)
-	if strings.Contains(lowerTitle, "incognito") || strings.Contains(lowerTitle, "private browsing") {
-		return s, false
-	}
-	if !c.config.WindowTitles {
-		s.WindowTitle = ""
-	}
-	if !c.config.BrowserPages {
-		s.URL = ""
-		s.Domain = ""
-	} else if s.URL != "" {
-		u, err := url.Parse(s.URL)
-		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			s.URL = ""
-			s.Domain = ""
-		} else {
-			u.User = nil
-			u.RawQuery = ""
-			u.Fragment = ""
-			s.Domain = strings.ToLower(u.Hostname())
-			s.URL = u.String()
-		}
-	}
-	for _, domain := range c.config.ExcludedDomains {
-		domain = strings.Trim(strings.ToLower(domain), " .")
-		if domain != "" && (s.Domain == domain || strings.HasSuffix(s.Domain, "."+domain)) {
-			return s, false
-		}
-	}
-	if len(s.App) > 240 || len(s.AppID) > 240 || len(s.WindowTitle) > 1000 || len(s.URL) > 2048 {
-		return s, false
-	}
-	return s, true
+	return normalizeSample(s, c.config)
 }
 
 // Observe assigns each bounded interval to the previously observed foreground
@@ -272,7 +233,7 @@ func (c *Collector) Observe(sample Sample, at time.Time) error {
 		c.sessionID = 0
 		return nil
 	}
-	if c.browser != nil && at.Sub(c.browser.At) >= 0 && at.Sub(c.browser.At) < 40*time.Second && strings.EqualFold(sample.App, c.browser.App) {
+	if c.browser != nil && at.Sub(c.browser.At) >= 0 && at.Sub(c.browser.At) < 40*time.Second && sameBrowser(sample.App, sample.AppID, c.browser.App) {
 		if c.browser.Private {
 			sample.Private = true
 		}
@@ -343,7 +304,7 @@ func (c *Collector) Clear() error {
 	c.browser = nil
 	c.generation++
 	c.runID = randomToken()
-	_, err := c.db.Exec(`DELETE FROM activity_sessions; DELETE FROM edges WHERE source='activity'; DELETE FROM nodes WHERE type IN ('app','window','domain','page');`)
+	_, err := c.db.Exec(`DELETE FROM activity_sessions; DELETE FROM edge_evidence WHERE source='activity'; DELETE FROM edges WHERE source='activity'; DELETE FROM nodes WHERE type IN ('app','window','domain','page');`)
 	return err
 }
 

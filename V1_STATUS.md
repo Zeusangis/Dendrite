@@ -1,6 +1,6 @@
 # Dendrite V1 Status
 
-**Updated:** 2026-10-01
+**Updated:** 2026-10-12
 
 The original audit's nine recommended corrections have been implemented, alongside
 V1 search and polish features. This is a much more complete local single-user V1,
@@ -58,6 +58,32 @@ not a claim of production readiness or completion of V2/V3.
 - Strict API method handling, bounded JSON bodies, loopback defaults, origin checks,
   HTTP timeouts, graceful server shutdown, and configurable root/proxy origins.
 - Approved upgrade from Next.js 14 to 15.5.27; patched PostCSS override.
+
+## Website-aware activity connections
+
+- Shared normalization and canonical identities for native samples, extension hints,
+  retained data and graph projections; backend exclusions and URL credential/query/
+  fragment stripping. Saving privacy exclusions deletes matching retained sessions;
+  disabling metadata strips retained metadata. No native collection was enabled for tests.
+- Conservative weighted note-title/tag/entity/domain matching with transparent evidence,
+  explicit Go-language aliases and generic-token rejection; no temporal-proximity matching.
+- Per-producer evidence with explicit > activity > automatic > AI precedence; one graph
+  edge per unordered pair, stable discovery IDs and restoration of losing evidence.
+- Graph-aware retention while paused, stable surviving positions, robust run/gap/idle
+  transition boundaries and prevention of switches across removed excluded contexts.
+- Bounded recent/domain/page/node-detail APIs; website explorer, relationship explanations,
+  metadata inspector and labeled graph source/node filters.
+- Extension event coalescing, heartbeat, persistent bounded backoff, safe status messages
+  and private/unfocused/internal/excluded suppression tests.
+- Synthetic Wikipedia/GeeksforGeeks/GitHub/Go/excluded fixtures exercise the actual browser
+  UI, privacy deletion and note preservation. Real browser permissions/private detection
+  remain best effort and were not manually enabled or validated.
+
+Latest checks: backend race suite/vet, frontend typecheck/build, all three Playwright
+workflows, and seven extension tests passed. A synthetic-data localhost preview was
+also exercised at desktop/mobile widths with no page errors or horizontal page overflow.
+The shared preview browser initially could not attach; once its default tab became
+available, the website accessibility tree and console/network logs were verified too.
 
 ## Verified
 

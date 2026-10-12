@@ -1,6 +1,6 @@
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
@@ -13,8 +13,13 @@ await new Promise((resolve, reject) => {
 });
 const root = await mkdtemp(join(tmpdir(), "dendrite-e2e-"));
 await mkdir(join(root, "notes"));
+await mkdir("test-results", { recursive: true });
+await writeFile("test-results/backend-root.txt", root);
 const binary = join(root, "server");
 await promisify(execFile)("go", ["build", "-o", binary, "./cmd/server"], { cwd: "../backend" });
+if (process.env.DENDRITE_TEST_WEBSITES === "true") {
+ await promisify(execFile)("go", ["run", "./internal/activity/testdata/seed", root], { cwd: "../backend" });
+}
 const child = spawn(binary, [], { stdio: "inherit", env: { ...process.env, DENDRITE_ROOT: root, DENDRITE_ADDR: `127.0.0.1:${port}`, DENDRITE_ACTIVITY_AUTOSTART: "false" } });
 let stopping = false;
 async function stop() {

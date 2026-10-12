@@ -22,6 +22,18 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
  const pending = useRef<number | null>(null);
  const hover = useRef<number | null>(null);
  const signature = useRef("");
+ const [showActivity,setShowActivity]=useState(true),[showBrowser,setShowBrowser]=useState(true),[scope,setScope]=useState("all");
+ const filters=useRef({showActivity,showBrowser,scope}); filters.current={showActivity,showBrowser,scope};
+ const visibleNode=(n:Note | undefined)=>{
+  if (!n) return false;
+  const f=filters.current;
+  if (!f.showBrowser && (n.type==="domain"||n.type==="page")) return false;
+  if (f.scope==="domains") return n.type==="domain" || n.type==="note";
+  if (f.scope==="pages") return n.type==="page" || n.type==="note";
+  if (f.scope==="connected") return n.type!=="note" || edges.current.some(e=>e.edge.source==="activity" && (e.a.id===n.id||e.b.id===n.id));
+  return true;
+ };
+ const edgeColor=(e:Edge)=>e.source==="explicit"?"#6ea8fe":e.source!=="activity"?"#8b93a7":e.relationship_type==="context switch"?"#c179f2":e.relationship_type==="activity concept"?"#e6aa45":"#47b881";
  const [list, setList] = useState<Note[]>([]);
  const [edgeList, setEdgeList] = useState<Edge[]>([]);
  const [loading, setLoading] = useState(true);
@@ -29,9 +41,9 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
  const props = useRef({ selectedId, selectedEdgeId, onSelect, onSelectEdge, showWeak, threshold, onStatus });
  props.current = { selectedId, selectedEdgeId, onSelect, onSelectEdge, showWeak, threshold, onStatus };
  const drag = useRef<{ id: number; node: SimNode | null; edge: Edge | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null>(null);
- const visible = (e: Edge) => props.current.showWeak || e.source === "explicit" || e.strength >= props.current.threshold;
+ const visible = (e: Edge) => (filters.current.showActivity || e.source!=="activity") && visibleNode(nodes.current.get(e.source_id)!) && visibleNode(nodes.current.get(e.target_id)!) && (props.current.showWeak || e.source === "explicit" || e.strength >= props.current.threshold);
  const fit = useCallback(() => {
-  const wrap = wrapRef.current; const all = [...nodes.current.values()]; if (!wrap || !all.length) return;
+  const wrap = wrapRef.current; const all = [...nodes.current.values()].filter(visibleNode); if (!wrap || !all.length) return;
   const minX = Math.min(...all.map(n => n.x)) - 70, maxX = Math.max(...all.map(n => n.x)) + 70;
   const minY = Math.min(...all.map(n => n.y)) - 70, maxY = Math.max(...all.map(n => n.y)) + 70;
   const scale = Math.min(1.5, Math.max(0.1, Math.min(wrap.clientWidth / (maxX - minX), wrap.clientHeight / (maxY - minY)) * 0.9));
@@ -69,7 +81,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   active.current = true; load().catch(() => {}); const timer = setInterval(() => { load().catch(() => {}); }, 6000);
   return () => { active.current = false; sequence.current++; clearInterval(timer); };
  }, [load]);
- useEffect(() => { settle.current = 120; }, [showWeak, threshold]);
+ useEffect(() => { settle.current = 120; }, [showWeak, threshold, showActivity, showBrowser, scope]);
 
  useEffect(() => {
   const wrap = wrapRef.current; if (!wrap) return;
@@ -87,7 +99,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
    const canvas = canvasRef.current, wrap = wrapRef.current;
    if (!canvas || !wrap) { raf = requestAnimationFrame(loop); return; }
    if (document.hidden) { raf=requestAnimationFrame(loop); return; }
-   const all = [...nodes.current.values()];
+   const all = [...nodes.current.values()].filter(visibleNode);
    if (settle.current > 0) {
     settle.current--;
     // Spatial buckets bound repulsion for large vaults instead of all-pairs.
@@ -120,7 +132,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
    ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.save();ctx.translate(view.current.tx,view.current.ty);ctx.scale(view.current.scale,view.current.scale);
    for(const {edge,a,b} of edges.current){
     if(!visible(edge))continue;const selected=props.current.selectedEdgeId===edge.id||props.current.selectedId===a.id||props.current.selectedId===b.id;
-    ctx.strokeStyle=selected?"#8db9ff":`rgba(110,168,254,${Math.min(0.08+edge.strength/200,0.6)})`;ctx.lineWidth=selected?2.5:1;
+    ctx.strokeStyle=selected?"#8db9ff":edgeColor(edge);ctx.lineWidth=selected?2.5:1;
     ctx.setLineDash(edge.source==="explicit"?[]:[4,4]);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.setLineDash([]);
     if(selected){ctx.font="11px system-ui";ctx.fillStyle="#dde3ee";ctx.textAlign="center";ctx.fillText(`${Math.round(edge.strength)}/150`,(a.x+b.x)/2,(a.y+b.y)/2-5);}
    }
@@ -133,7 +145,7 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
   };raf=requestAnimationFrame(loop);return()=>cancelAnimationFrame(raf);
  }, []);
  const world=(x:number,y:number)=>{const r=canvasRef.current!.getBoundingClientRect(),v=view.current;return{x:(x-r.left-v.tx)/v.scale,y:(y-r.top-v.ty)/v.scale};};
- const pick=(x:number,y:number)=>{const p=world(x,y);return[...nodes.current.values()].find(n=>Math.hypot(n.x-p.x,n.y-p.y)<radius(n)+6)??null;};
+ const pick=(x:number,y:number)=>{const p=world(x,y);return[...nodes.current.values()].filter(visibleNode).find(n=>Math.hypot(n.x-p.x,n.y-p.y)<radius(n)+6)??null;};
  const pickEdge=(x:number,y:number)=>{
   const p=world(x,y);let best:Edge|null=null,bestD=8/view.current.scale;
   for(const {edge,a,b} of edges.current){if(!visible(edge))continue;const dx=b.x-a.x,dy=b.y-a.y,len=dx*dx+dy*dy;if(!len)continue;const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/len));const d=Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);if(d<bestD){bestD=d;best=edge;}}
@@ -158,9 +170,14 @@ export const GraphCanvas = forwardRef<GraphHandle, Props>(function GraphCanvas({
    const r=e.currentTarget.getBoundingClientRect(),v=view.current,mx=e.clientX-r.left,my=e.clientY-r.top,s=Math.min(4,Math.max(0.1,v.scale*Math.exp(-e.deltaY*0.001)));
    v.tx=mx-(mx-v.tx)*s/v.scale;v.ty=my-(my-v.ty)*s/v.scale;v.scale=s;
   }} onDoubleClick={async e=>{const n=pick(e.clientX,e.clientY);if(!n)return;try{await api.setPosition(n.id,null,null);n.fx=n.fy=null;settle.current=180;}catch(err){props.current.onStatus(`Unpin failed: ${String(err)}`);}}}/>
-  <div className="graph-tools"><button onClick={fit}>Fit graph</button><details><summary>Browse graph ({list.length})</summary><div className="browse">
-   {list.map(n=><button key={n.id} onClick={()=>{selectNode(n.id);focus(n.id);}}>{n.title} {n.type!=="note"?`(${n.type})`:""}</button>)}
-   {edgeList.filter(visible).map(e=><button key={`edge-${e.id}`} onClick={()=>{onSelectEdge(e);}}>Inspect relationship: {list.find(n=>n.id===e.source_id)?.title} ↔ {list.find(n=>n.id===e.target_id)?.title}</button>)}
+  <div className="graph-tools"><button onClick={fit}>Fit graph</button><details><summary>Graph filters & legend</summary><div className="browse">
+   <label><input type="checkbox" checked={showActivity} onChange={e=>setShowActivity(e.target.checked)}/>Show activity edges</label>
+   <label><input type="checkbox" checked={showBrowser} onChange={e=>setShowBrowser(e.target.checked)}/>Show browser nodes</label>
+   <label>Node scope <select aria-label="Graph node scope" value={scope} onChange={e=>setScope(e.target.value)}><option value="all">All nodes</option><option value="domains">Domains and notes</option><option value="pages">Pages and notes</option><option value="connected">Activity-connected notes</option></select></label>
+   <p>Blue solid: explicit wikilinks</p><p>Gray dashed: inferred note links</p><p>Green dashed: activity usage</p><p>Orange dashed: activity concepts</p><p>Purple dashed: context switches</p>
+  </div></details><details><summary>Browse graph ({list.filter(visibleNode).length})</summary><div className="browse">
+   {list.filter(visibleNode).map(n=><button key={n.id} onClick={()=>{selectNode(n.id);focus(n.id);}}>{n.title} {n.type!=="note"?`(${n.type})`:""}</button>)}
+   {edgeList.filter(visible).map(e=><button key={`edge-${e.id}`} onClick={()=>{onSelectEdge(e);}}>Inspect relationship: {list.find(n=>n.id===e.source_id)?.title} ↔ {list.find(n=>n.id===e.target_id)?.title} ({e.source} · {e.relationship_type})</button>)}
   </div></details></div>
   {(loading||error||!list.length)&&<div className="graph-message" role="status">{loading?"Loading graph…":error?<> {error} <button onClick={()=>{load().catch(()=>{});}}>Retry</button></>:"Create a note to start your graph."}</div>}
   <style jsx>{`.graphwrap{flex:1;position:relative;min-width:0;min-height:260px;overflow:hidden;background:radial-gradient(circle at 30% 20%,rgba(59,91,219,.08),transparent 60%),var(--bg)}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}.graph-tools{position:absolute;left:12px;top:12px;display:flex;gap:8px;align-items:flex-start}details{background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;padding:6px;max-width:300px}summary{cursor:pointer;font-size:12px}.browse{display:flex;flex-direction:column;gap:4px;max-height:250px;overflow:auto;margin-top:8px}.browse button{text-align:left;font-size:12px}.graph-message{position:absolute;left:20px;bottom:20px;background:var(--bg-panel);padding:12px;border-radius:8px;max-width:90%}`}</style>

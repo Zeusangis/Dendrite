@@ -67,6 +67,11 @@ func GetSeries(db *sql.DB, days int, granularity string, now time.Time) (Series,
 	localNow := now.In(loc)
 	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, loc)
 	rangeStart := today.AddDate(0, 0, -(days - 1))
+	config, err := readConfig(db)
+	if err != nil {
+		return Series{}, err
+	}
+	retentionStart := now.AddDate(0, 0, -config.RetentionDays)
 	first := rangeStart
 	if granularity == "week" {
 		fromMonday := (int(rangeStart.Weekday()) + 6) % 7
@@ -100,6 +105,10 @@ func GetSeries(db *sql.DB, days int, granularity string, now time.Time) (Series,
 			data: TimeBucket{Start: start.Format(time.RFC3339), Label: label, Apps: []AppBucket{}},
 			apps: map[string]*appTotals{},
 		}
+	}
+	// Keep requested empty buckets but never include expired evidence.
+	if retentionStart.After(rangeStart) {
+		rangeStart = retentionStart
 	}
 	periodEnd := localNow
 	if starts[count].Before(periodEnd) {
@@ -173,7 +182,7 @@ func GetSeries(db *sql.DB, days int, granularity string, now time.Time) (Series,
 		if appID == "" {
 			appID = session.App
 		}
-		if previous != nil && previous.RunID == session.RunID && previousApp != appID {
+		if previous != nil && observedSwitch(*previous, *session) && previousApp != appID {
 			previousEnd, endErr := time.Parse(time.RFC3339Nano, previous.EndedAt)
 			start, startErr := time.Parse(time.RFC3339Nano, session.StartedAt)
 			gap := start.Sub(previousEnd)

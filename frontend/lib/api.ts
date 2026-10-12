@@ -1,4 +1,4 @@
-import type { ActivityConfig, ActivitySeries, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
+import type { ActivityNodeDetail, ActivityQuery, ActivityWebsiteResult, ActivityConfig, ActivitySeries, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
  const res = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers }, cache: "no-store" });
@@ -6,6 +6,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  return res.json() as Promise<T>;
 }
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+const activityParams = (q: ActivityQuery) => new URLSearchParams(Object.entries(q).map(([key,value])=>[key,String(value)]));
 const noteURL = (id: number | string) => `/api/notes/${encodeURIComponent(String(id))}`;
 export const api = {
  graph: () => request<GraphSnapshot>("/api/graph"),
@@ -14,6 +15,8 @@ export const api = {
  configureActivity: (config: ActivityConfig) => request<ActivityStatus>("/api/activity/config",json("PUT",config)),
  activitySummary: (days: number) => request<ActivitySummary>(`/api/activity/summary?days=${days}`),
  activitySeries: (days: number, granularity: "day" | "week") => request<ActivitySeries>(`/api/activity/series?days=${days}&granularity=${granularity}`),
+ activityWebsites: (kind: "domains" | "pages", q: ActivityQuery) => request<ActivityWebsiteResult>(`/api/activity/${kind}?${activityParams(q)}`),
+ activityNode: (id: number) => request<ActivityNodeDetail>(`/api/activity/nodes/${id}`),
  nodeActivity: (id: number) => request<ActivityUsage>(`/api/nodes/${id}/activity`),
  activityPairing: () => request<{token: string}>("/api/activity/pairing"),
  clearActivity: () => request<{deleted: boolean}>("/api/activity/data?confirm=true",json("DELETE")),

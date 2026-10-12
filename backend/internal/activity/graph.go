@@ -3,11 +3,9 @@ package activity
 import (
 	"crypto/sha256"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/zeusangis/dendrite/internal/relationships"
@@ -46,7 +44,11 @@ type Summary struct {
 }
 
 func loadSessions(db *sql.DB, since time.Time) ([]Session, error) {
-	rows, err := db.Query(`SELECT id,app,app_id,window_title,domain,url,started_at,ended_at,total_seconds,active_seconds,samples,run_id FROM activity_sessions WHERE ended_at>=? ORDER BY started_at,id`, since.UTC().Format(time.RFC3339Nano))
+	cfg, err := readConfig(db)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`SELECT id,app,app_id,window_title,domain,url,started_at,ended_at,total_seconds,active_seconds,samples,run_id FROM activity_sessions WHERE julianday(ended_at)>=julianday(?) ORDER BY julianday(started_at),id`, since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +58,13 @@ func loadSessions(db *sql.DB, since time.Time) ([]Session, error) {
 		var s Session
 		if err = rows.Scan(&s.ID, &s.App, &s.AppID, &s.WindowTitle, &s.Domain, &s.URL, &s.StartedAt, &s.EndedAt, &s.TotalSeconds, &s.ActiveSeconds, &s.Samples, &s.RunID); err != nil {
 			return nil, err
+		}
+		ctx, ok := NormalizeContext(ActivityContext{App: s.App, AppID: s.AppID, WindowTitle: s.WindowTitle, URL: s.URL, Focused: true}, cfg)
+		if !ok {
+			s.App, s.AppID, s.WindowTitle, s.Domain, s.URL = "", "", "", "", ""
+			s.TotalSeconds, s.ActiveSeconds = 0, 0
+		} else {
+			s.App, s.AppID, s.WindowTitle, s.Domain, s.URL = ctx.App, ctx.AppID, ctx.WindowTitle, ctx.Domain, ctx.URL
 		}
 		sessions = append(sessions, s)
 	}
@@ -68,6 +77,13 @@ func GetSummary(db *sql.DB, days int) (Summary, error) {
 	if days > 365 {
 		days = 365
 	}
+	cfg, err := readConfig(db)
+	if err != nil {
+		return Summary{}, err
+	}
+	if days > cfg.RetentionDays {
+		days = cfg.RetentionDays
+	}
 	since := time.Now().AddDate(0, 0, -days)
 	sessions, err := loadSessions(db, since)
 	if err != nil {
@@ -76,6 +92,9 @@ func GetSummary(db *sql.DB, days int) (Summary, error) {
 	summary := Summary{Usage: []Usage{}, Recent: []Session{}}
 	byApp := map[string]*Usage{}
 	for _, s := range sessions {
+		if s.TotalSeconds <= 0 {
+			continue
+		}
 		start, _ := time.Parse(time.RFC3339Nano, s.StartedAt)
 		end, _ := time.Parse(time.RFC3339Nano, s.EndedAt)
 		if start.Before(since) && end.After(since) && end.After(start) {
@@ -114,7 +133,9 @@ func GetSummary(db *sql.DB, days int) (Summary, error) {
 	}
 	sort.Slice(summary.Usage, func(i, j int) bool { return summary.Usage[i].ActiveSeconds > summary.Usage[j].ActiveSeconds })
 	for i := len(sessions) - 1; i >= 0 && len(summary.Recent) < 50; i-- {
-		summary.Recent = append(summary.Recent, sessions[i])
+		if sessions[i].TotalSeconds > 0 {
+			summary.Recent = append(summary.Recent, sessions[i])
+		}
 	}
 	return summary, nil
 }
@@ -132,6 +153,7 @@ func nodeKey(typ, key string) string {
 
 type derived struct {
 	Title, Type, Key string
+	Domain, URL      string
 	Total, Active    float64
 	Sessions         int
 	First, Last      time.Time
@@ -157,22 +179,13 @@ func Strength(active, total float64, count int, transition bool) float64 {
 	return math.Round(math.Min(150, score)*100) / 100
 }
 func Rebuild(db *sql.DB) error {
-	// Retention applies while paused too, because graph sync keeps running.
-	var configJSON string
-	configErr := db.QueryRow(`SELECT config_json FROM activity_settings WHERE id=1`).Scan(&configJSON)
-	if configErr != nil && configErr != sql.ErrNoRows {
-		return configErr
+	// Apply privacy and retention while paused as well as during collection.
+	config, err := readConfig(db)
+	if err != nil {
+		return err
 	}
-	if configErr == nil {
-		var config diskConfig
-		if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
-			return err
-		}
-		if config.RetentionDays > 0 {
-			if _, err := db.Exec(`DELETE FROM activity_sessions WHERE ended_at<?`, time.Now().AddDate(0, 0, -config.RetentionDays).UTC().Format(time.RFC3339Nano)); err != nil {
-				return err
-			}
-		}
+	if err = ReconcilePrivacy(db, config, time.Now()); err != nil {
+		return err
 	}
 	sessions, err := loadSessions(db, time.Time{})
 	if err != nil {
@@ -189,10 +202,22 @@ func Rebuild(db *sql.DB) error {
 			n = &derived{Title: title, Type: typ, Key: path, First: first}
 			derivedNodes[path] = n
 		}
+		n.Title = title
+		if typ == NodeDomain || typ == NodePage {
+			n.Domain = s.Domain
+		}
+		if typ == NodePage {
+			n.URL = s.URL
+		}
+		if first.Before(n.First) {
+			n.First = first
+		}
 		n.Total += s.TotalSeconds
 		n.Active += s.ActiveSeconds
 		n.Sessions++
-		n.Last = last
+		if last.After(n.Last) {
+			n.Last = last
+		}
 		return path
 	}
 	addEdge := func(a, b, kind string, seconds float64) {
@@ -222,31 +247,26 @@ func Rebuild(db *sql.DB) error {
 		if appID == "" {
 			appID = s.App
 		}
-		app := addNode("app", appID, s.App, s)
+		app := addNode(NodeApp, appID, s.App, s)
 		if s.WindowTitle != "" && s.URL == "" {
-			window := addNode("window", appID+"|"+s.WindowTitle, s.WindowTitle, s)
-			addEdge(app, window, "foreground context", s.ActiveSeconds)
+			window := addNode(NodeWindow, appID+"|"+s.WindowTitle, s.WindowTitle, s)
+			addEdge(app, window, EdgeForeground, s.ActiveSeconds)
 		}
 		if s.Domain != "" {
-			domain := addNode("domain", s.Domain, s.Domain, s)
-			addEdge(app, domain, "browser usage", s.ActiveSeconds)
+			domain := addNode(NodeDomain, s.Domain, s.Domain, s)
+			addEdge(app, domain, EdgeBrowserUsage, s.ActiveSeconds)
 			if s.URL != "" {
 				title := s.WindowTitle
 				if title == "" {
 					title = s.URL
 				}
-				page := addNode("page", s.URL, title, s)
-				addEdge(domain, page, "visited page", s.ActiveSeconds)
-				addEdge(app, page, "browser page use", s.ActiveSeconds)
+				page := addNode(NodePage, s.URL, title, s)
+				addEdge(domain, page, EdgeVisitedPage, s.ActiveSeconds)
+				addEdge(app, page, EdgeBrowserPageUse, s.ActiveSeconds)
 			}
 		}
-		if previous != nil && previous.ActiveSeconds > 0 && s.ActiveSeconds > 0 && previousApp != app && previous.RunID == s.RunID {
-			end, _ := time.Parse(time.RFC3339Nano, previous.EndedAt)
-			start, _ := time.Parse(time.RFC3339Nano, s.StartedAt)
-			gap := start.Sub(end)
-			if gap >= 0 && gap <= 30*time.Second {
-				addEdge(previousApp, app, "context switch", math.Min(previous.ActiveSeconds, s.ActiveSeconds))
-			}
+		if previous != nil && observedSwitch(*previous, s) {
+			addEdge(previousApp, app, EdgeContextSwitch, math.Min(previous.ActiveSeconds, s.ActiveSeconds))
 		}
 		previous = &sessions[i]
 		previousApp = app
@@ -303,21 +323,7 @@ func Rebuild(db *sql.DB) error {
 		return err
 	}
 	for _, note := range noteNodes {
-		concepts := []string{note.Title}
-		rows, err := db.Query(`SELECT tag FROM note_tags WHERE note_id=? UNION SELECT name FROM entities WHERE note_id=?`, note.ID, note.ID)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var concept string
-			if err = rows.Scan(&concept); err != nil {
-				rows.Close()
-				return err
-			}
-			concepts = append(concepts, concept)
-		}
-		err = rows.Err()
-		rows.Close()
+		concepts, err := noteConcepts(db, note.ID, note.Title)
 		if err != nil {
 			return err
 		}
@@ -325,43 +331,18 @@ func Rebuild(db *sql.DB) error {
 			if node.Type == "app" || node.Active <= 0 {
 				continue
 			}
-			matched := ""
-			for _, concept := range concepts {
-				if len([]rune(concept)) >= 3 && phraseMatch(node.Title, concept) {
-					matched = concept
-					break
-				}
-			}
-			if matched == "" {
+			matched := strongestMatch(concepts, node)
+			if matched == nil {
 				continue
 			}
 			a, b := note.ID, node.ID
 			if a > b {
 				a, b = b, a
 			}
-			edges = append(edges, storage.Edge{SourceID: a, TargetID: b, Strength: math.Min(150, Strength(node.Active, node.Total, node.Sessions, false)+20), RelationshipType: "activity concept", Source: "activity", Reason: fmt.Sprintf("Shared note concept: %s; %.1f active minutes; %d sessions", matched, node.Active/60, node.Sessions)})
+			edges = append(edges, storage.Edge{SourceID: a, TargetID: b, Strength: math.Min(150, Strength(node.Active, node.Total, node.Sessions, false)*0.5+matched.Weight), RelationshipType: EdgeConcept, Source: "activity", Reason: fmt.Sprintf("Shared note concept: %s; %s evidence (%.0f); %.1f active minutes; %d sessions", matched.Concept, matched.Kind, matched.Weight, node.Active/60, node.Sessions)})
 		}
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err = tx.Exec(`CREATE TEMP TABLE IF NOT EXISTS activity_pairs(a INTEGER,b INTEGER,PRIMARY KEY(a,b));DELETE FROM activity_pairs;`); err != nil {
-		return err
-	}
-	for _, e := range edges {
-		if _, err = tx.Exec(`INSERT OR IGNORE INTO activity_pairs VALUES(?,?)`, e.SourceID, e.TargetID); err != nil {
-			return err
-		}
-		if _, err = tx.Exec(`INSERT INTO edges(source_id,target_id,strength,relationship_type,source,reason,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(source_id,target_id) DO UPDATE SET strength=excluded.strength,relationship_type=excluded.relationship_type,source=excluded.source,reason=excluded.reason`, e.SourceID, e.TargetID, e.Strength, e.RelationshipType, e.Source, e.Reason, time.Now().UTC().Format(time.RFC3339)); err != nil {
-			return err
-		}
-	}
-	if _, err = tx.Exec(`DELETE FROM edges WHERE source='activity' AND NOT EXISTS(SELECT 1 FROM activity_pairs p WHERE p.a=edges.source_id AND p.b=edges.target_id)`); err != nil {
-		return err
-	}
-	if err = tx.Commit(); err != nil {
+	if err = storage.ReplaceEdgeEvidence(db, []string{"activity"}, edges); err != nil {
 		return err
 	}
 	snap, err := storage.GetGraph(db)
@@ -388,15 +369,4 @@ func Rebuild(db *sql.DB) error {
 		}
 	}
 	return nil
-}
-func phraseMatch(text, phrase string) bool {
-	normalized := func(s string) string {
-		return " " + strings.Join(strings.Fields(strings.ToLower(strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r > 127 {
-				return r
-			}
-			return ' '
-		}, s))), " ") + " "
-	}
-	return strings.Contains(normalized(text), normalized(phrase))
 }

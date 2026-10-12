@@ -10,6 +10,26 @@ import (
 	"github.com/zeusangis/dendrite/internal/activity"
 )
 
+func activityQuery(w http.ResponseWriter, r *http.Request) (activity.Query, bool) {
+	v := r.URL.Query()
+	q := activity.Query{Domain: v.Get("domain"), App: v.Get("app"), Search: v.Get("search"), Sort: v.Get("sort")}
+	for name, target := range map[string]*int{"days": &q.Days, "limit": &q.Limit, "offset": &q.Offset} {
+		if raw := v.Get(name); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n < 0 {
+				writeErr(w, 400, "invalid "+name)
+				return q, false
+			}
+			*target = n
+		}
+	}
+	if err := activity.ValidateQuery(q); err != nil {
+		writeErr(w, 400, err.Error())
+		return q, false
+	}
+	return q.Bounded(), true
+}
+
 func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 	if h.Activity == nil {
 		writeErr(w, 503, "activity collector unavailable")
@@ -65,6 +85,37 @@ func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, summary)
+	case "/recent", "/domains", "/pages":
+		if !method(w, r, "GET") {
+			return
+		}
+		q, ok := activityQuery(w, r)
+		if !ok {
+			return
+		}
+		if sub == "/recent" {
+			result, err := activity.GetRecent(h.DB, q)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			writeJSON(w, result)
+		} else {
+			typ := activity.NodeDomain
+			if sub == "/pages" {
+				typ = activity.NodePage
+			}
+			result, err := activity.GetWebsites(h.DB, typ, q)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			items := result.Domains
+			if typ == activity.NodePage {
+				items = result.Pages
+			}
+			writeJSON(w, map[string]interface{}{strings.TrimPrefix(sub, "/"): items, "total": result.Total, "limit": result.Limit, "offset": result.Offset})
+		}
 	case "/pairing":
 		if method(w, r, "GET") {
 			writeJSON(w, map[string]string{"token": h.Activity.Token()})
@@ -87,7 +138,8 @@ func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.Activity.Browser(hint)
-		writeJSON(w, map[string]bool{"ok": true})
+		state := h.Activity.Status()
+		writeJSON(w, map[string]bool{"ok": true, "recording": state.Config.Enabled && state.Config.BrowserPages})
 	case "/data":
 		if !method(w, r, "DELETE") {
 			return
@@ -106,6 +158,23 @@ func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]bool{"deleted": true})
 	default:
+		if strings.HasPrefix(sub, "/nodes/") {
+			if !method(w, r, "GET") {
+				return
+			}
+			id, err := strconv.ParseInt(strings.TrimPrefix(sub, "/nodes/"), 10, 64)
+			if err != nil || id <= 0 {
+				writeErr(w, 400, "invalid activity node id")
+				return
+			}
+			detail, err := activity.GetNodeDetail(h.DB, id)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			writeJSON(w, detail)
+			return
+		}
 		writeErr(w, 404, "unknown activity endpoint")
 	}
 }

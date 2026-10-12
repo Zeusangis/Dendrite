@@ -65,6 +65,15 @@ export interface ActivitySeriesApp { app: string; app_id: string; total_seconds:
 export interface ActivitySeriesBucket { start: string; label: string; total_seconds: number; active_seconds: number; idle_seconds: number; context_switches: number; apps: ActivitySeriesApp[] }
 export interface ActivitySeries { granularity: "day" | "week"; days: number; apps: string[]; app_ids: string[]; buckets: ActivitySeriesBucket[] }
 
+export interface ActivityWebsite {
+ node_id: number; type: string; title: string; domain: string; url: string; browsers: string[];
+ total_seconds: number; active_seconds: number; sessions: number; pages: number;
+ first_seen: string; last_seen: string; connections: number;
+}
+export interface ActivityWebsiteResult { domains?: ActivityWebsite[]; pages?: ActivityWebsite[]; total: number; limit: number; offset: number }
+export interface ActivityNodeDetail extends ActivityWebsite { node: Note; related_nodes: {node: Note; edge: Edge}[]; related_notes: {node: Note; edge: Edge}[] }
+export interface ActivityQuery { days?: number; limit?: number; offset?: number; domain?: string; app?: string; search?: string; sort?: "recent" | "duration" | "active" }
+
 export interface Settings { min_auto_edge_strength: number }
 export interface HistoryState { undo: string; redo: string }
 export interface BackupFile { path: string; content: string; x?: number | null; y?: number | null }

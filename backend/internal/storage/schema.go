@@ -88,6 +88,15 @@ var Schema = []string{
  CREATE INDEX activity_sessions_app ON activity_sessions(app_id);
  CREATE TABLE activity_settings (id INTEGER PRIMARY KEY CHECK(id=1), config_json TEXT NOT NULL);
  CREATE TABLE activity_node_stats (node_id INTEGER PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE, total_seconds REAL NOT NULL, active_seconds REAL NOT NULL, sessions INTEGER NOT NULL, last_seen TEXT NOT NULL);`,
+	// Retain each producer's evidence while projecting one winning edge per pair.
+	`CREATE TABLE edge_evidence (
+ source_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+ target_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+ source TEXT NOT NULL, strength REAL NOT NULL, relationship_type TEXT NOT NULL, reason TEXT NOT NULL,
+ PRIMARY KEY(source_id,target_id,source)
+ );
+ INSERT INTO edge_evidence SELECT source_id,target_id,source,strength,relationship_type,reason FROM edges;
+ CREATE INDEX activity_sessions_ended ON activity_sessions(ended_at);`,
 }
 
 // Migrate applies pending schema migrations. Safe to call on every startup.

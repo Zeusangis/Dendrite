@@ -98,8 +98,69 @@ backend. It does not send page contents or keystrokes.
 5. Paste the token into the extension options, select the browser name, and
    explicitly enable recording.
 
-Private-window detection is best effort. Exclude sensitive browsers or
-profiles, or pause recording whenever privacy is uncertain.
+### Website activity and automatic connections
+
+Open **Activity → Websites** to browse retained domains and pages, search by
+page title or domain, sort by active time/recent use/total duration, and inspect
+browser names, durations, sessions, last seen, and connection counts. **Connections**
+shows the evidence behind browser → domain → page relationships and matching
+Markdown notes. The graph's **Graph filters & legend** hides activity edges or
+browser nodes without deleting notes, and can scope browsing to domains, pages,
+or activity-connected notes. Existing daily/weekly comparisons remain in **Overview**.
+
+The backend is authoritative for both native and extension metadata. It accepts
+HTTP(S) URLs only and removes credentials, query strings, and fragments; hostnames,
+default ports, and empty root paths are canonicalized. Other trailing slashes are
+preserved because they may distinguish resources. Page contents are never read.
+**URL paths and window/page titles may still contain private information.**
+
+Note connections use conservative, case-insensitive title/tag/entity phrases or
+exact host evidence. Generic words such as Home, Google, Login, and New Tab are
+ignored; explicit Go-language concepts such as `golang` also recognize Go tutorials
+and `go.dev`. Reasons identify the concept, evidence type, active minutes, and
+sessions. Nearby usage alone does not imply a shared subject.
+
+One relationship is displayed per unordered pair. Explicit wikilinks take
+precedence over activity evidence, then ordinary inferred links, then AI evidence.
+Other producers' evidence is retained so it can reappear when the winning evidence
+expires. Rebuilds preserve surviving node positions and edge identities.
+
+Privacy settings are enforced on the backend, including subdomain exclusions.
+**Saving exclusions deletes matching retained sessions**, and disabling browser
+metadata or window titles strips that metadata from retained history. Projections
+are rebuilt immediately. Pausing preserves retained history; retention continues
+while paused. Deleting activity history preserves Markdown notes and their links.
+These privacy deletions cannot be undone.
+
+| Browser/source | Website metadata and limitations |
+| --- | --- |
+| macOS native sampler | Application/idle tracking; focused titles need Accessibility permission. Safari/Chromium document URLs are best effort through Accessibility; Firefox and browsers that omit that attribute may provide titles only. |
+| Chrome, Brave, Edge extension | Focused HTTP(S) tab only, explicit enable/pairing required. Configure the matching browser name. Incognito tabs/windows, unfocused windows, internal URLs, and extension exclusions send suppression hints. |
+| Safari / Firefox extensions | This Chromium Manifest V3 extension is not packaged for Safari or Firefox. |
+| Other platforms | Native collection is unavailable. Extension hints enrich native foreground samples; they do not independently generate timed sessions. |
+
+Native private-window detection is **best effort** based on available window metadata.
+A browser that omits privacy markers can defeat native detection. Extension suppression
+hints expire after 40 seconds; a disconnected/suspended extension cannot guarantee
+continued native suppression. Exclude sensitive browsers/profiles or pause recording
+whenever privacy is uncertain. No permission or private-browsing mode is enabled automatically.
+
+The extension coalesces duplicate tab events, refreshes hints every five seconds
+while its worker is awake, and uses a 30-second wake alarm. Backend failures back
+off from five seconds to one minute with a four-second request timeout; safe status
+messages show paused recording or connection errors without displaying the token.
+
+### Local activity API
+
+- `GET /api/activity/recent`: privacy-safe sessions
+- `GET /api/activity/domains` and `/pages`: aggregated website usage
+- `GET /api/activity/nodes/:id`: sanitized metadata, usage and up to 100 explained relationships
+- Existing `/summary`, `/series`, and `/api/edges/:id` remain compatible
+
+List parameters: `days` (up to 365, constrained by retention), `limit` (default 25,
+maximum 100), `offset`, `domain` (includes subdomains), `app` (name/bundle ID),
+`search`, and `sort=recent|duration|active`. Results have stable tie ordering.
+Pairing tokens are required only for extension ingestion and must remain private.
 
 ## Optional macOS login service
 
@@ -166,6 +227,24 @@ If Playwright browsers are not installed yet:
 ```bash
 npx playwright install chromium
 ```
+
+Run extension checks from the repository root:
+
+```bash
+node --test browser-extension/background.test.cjs
+```
+
+The website end-to-end workflow seeds **synthetic** Wikipedia, GeeksforGeeks,
+GitHub, Go, and excluded-domain sessions in a temporary database. It does not visit
+real sites or enable native recording. Manual checks with a live browser and OS
+permissions remain separate from this automated verification.
+
+Privacy review checklist:
+- Confirm enabled metadata fields and avoid sensitive titles/URL paths.
+- Configure app/domain exclusions before recording.
+- Confirm extension pairing and private-window behavior for your actual browser.
+- Verify pause, retention, and clear on disposable data before using real history.
+- Keep the local database, pairing token, backups, and logs private.
 
 The current end-to-end suite covers note, graph, search, conflict, history,
 activity, and privacy workflows. See [`V1_STATUS.md`](V1_STATUS.md) for the
