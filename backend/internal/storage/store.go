@@ -178,6 +178,97 @@ func ReplaceEntities(db *sql.DB, noteID int64, ents []Entity) error {
 	return tx.Commit()
 }
 
+// Pair gives an unordered connection a single stable, order-independent key
+// suitable for map lookups and for the muted-connection query.
+func Pair(a, b string) [2]string {
+	if a > b {
+		a, b = b, a
+	}
+	return [2]string{a, b}
+}
+
+// CanonicalPair is Pair split into the two column values that are persisted.
+func CanonicalPair(a, b string) (string, string) {
+	pair := Pair(a, b)
+	return pair[0], pair[1]
+}
+
+// MuteConnection hides one connection pair without deleting its evidence.
+// Muting is idempotent so repeated clicks from the UI stay harmless.
+func MuteConnection(db *sql.DB, aPath, bPath string) error {
+	a, b := CanonicalPair(aPath, bPath)
+	if a == "" || a == b {
+		return fmt.Errorf("a connection needs two distinct nodes")
+	}
+	_, err := db.Exec(`INSERT INTO muted_connections(a_path,b_path,created_at) VALUES(?,?,?) ON CONFLICT(a_path,b_path) DO NOTHING`, a, b, nowISO())
+	return err
+}
+
+func UnmuteConnection(db *sql.DB, aPath, bPath string) error {
+	a, b := CanonicalPair(aPath, bPath)
+	_, err := db.Exec(`DELETE FROM muted_connections WHERE a_path=? AND b_path=?`, a, b)
+	return err
+}
+
+// MutedConnection is one hidden pair, with the surviving node rows when the
+// referenced nodes still exist. Paths are always reported so a mute recorded
+// against a since-deleted activity node can still be lifted.
+type MutedConnection struct {
+	APath     string `json:"a_path"`
+	BPath     string `json:"b_path"`
+	CreatedAt string `json:"created_at"`
+	A         *Note  `json:"a,omitempty"`
+	B         *Note  `json:"b,omitempty"`
+}
+
+func ListMutedConnections(db *sql.DB) ([]MutedConnection, error) {
+	rows, err := db.Query(`SELECT a_path,b_path,created_at FROM muted_connections ORDER BY created_at DESC,a_path,b_path`)
+	if err != nil {
+		return nil, err
+	}
+	muted := []MutedConnection{}
+	for rows.Next() {
+		var m MutedConnection
+		if err = rows.Scan(&m.APath, &m.BPath, &m.CreatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		muted = append(muted, m)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for i := range muted {
+		if muted[i].A, err = GetNodeByPath(db, muted[i].APath); err != nil {
+			return nil, err
+		}
+		if muted[i].B, err = GetNodeByPath(db, muted[i].BPath); err != nil {
+			return nil, err
+		}
+	}
+	return muted, nil
+}
+
+// MutedPairs loads the hidden set for rebuild and projection filtering.
+func MutedPairs(db *sql.DB) (map[[2]string]bool, error) {
+	rows, err := db.Query(`SELECT a_path,b_path FROM muted_connections`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	muted := map[[2]string]bool{}
+	for rows.Next() {
+		var a, b string
+		if err = rows.Scan(&a, &b); err != nil {
+			return nil, err
+		}
+		muted[Pair(a, b)] = true
+	}
+	return muted, rows.Err()
+}
+
 // EdgeSourcePriority makes ownership independent of producer rebuild order.
 func EdgeSourcePriority(source string) int {
 	switch source {

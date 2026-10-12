@@ -71,8 +71,10 @@ export interface ActivityWebsite {
  first_seen: string; last_seen: string; connections: number;
 }
 export interface ActivityWebsiteResult { domains?: ActivityWebsite[]; pages?: ActivityWebsite[]; total: number; limit: number; offset: number }
-export interface ActivityNodeDetail extends ActivityWebsite { node: Note; related_nodes: {node: Note; edge: Edge}[]; related_notes: {node: Note; edge: Edge}[] }
+export interface ActivityNodeDetail extends ActivityWebsite { node: Note; related_nodes: {node: Note; edge: Edge}[]; related_notes: {node: Note; edge: Edge}[]; muted_connections: number }
 export interface ActivityQuery { days?: number; limit?: number; offset?: number; domain?: string; app?: string; search?: string; sort?: "recent" | "duration" | "active" }
+
+export interface MutedConnection { a_path: string; b_path: string; created_at: string; a?: Note; b?: Note }
 
 export interface Settings { min_auto_edge_strength: number }
 export interface HistoryState { undo: string; redo: string }

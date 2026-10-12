@@ -2,12 +2,14 @@ package api
 
 import (
 	"crypto/subtle"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/zeusangis/dendrite/internal/activity"
+	"github.com/zeusangis/dendrite/internal/storage"
 )
 
 func activityQuery(w http.ResponseWriter, r *http.Request) (activity.Query, bool) {
@@ -116,6 +118,85 @@ func (h *Handler) ActivityHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, map[string]interface{}{strings.TrimPrefix(sub, "/"): items, "total": result.Total, "limit": result.Limit, "offset": result.Offset})
 		}
+	case "/muted":
+		// Muting hides one automatic connection pair. It never edits Markdown or
+		// deletes activity evidence, so it is fully reversible.
+		if !method(w, r, "GET", "POST", "DELETE") {
+			return
+		}
+		if r.Method == "GET" {
+			muted, err := storage.ListMutedConnections(h.DB)
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			writeJSON(w, map[string]interface{}{"muted": muted})
+			return
+		}
+		var sourcePath, targetPath string
+		if raw := r.URL.Query(); r.Method == "DELETE" && (raw.Get("a_path") != "" || raw.Get("b_path") != "") {
+			// Paths let a user lift a mute whose activity node was pruned by
+			// retention, so hiding a connection is always reversible.
+			sourcePath, targetPath = raw.Get("a_path"), raw.Get("b_path")
+			if sourcePath == "" || targetPath == "" {
+				writeErr(w, 400, "both a_path and b_path are required")
+				return
+			}
+		} else {
+			var pair struct {
+				SourceID int64 `json:"source_id"`
+				TargetID int64 `json:"target_id"`
+			}
+			if r.Method == "POST" {
+				if !decode(w, r, &pair) {
+					return
+				}
+			} else {
+				var err error
+				if pair.SourceID, err = strconv.ParseInt(r.URL.Query().Get("source_id"), 10, 64); err != nil {
+					writeErr(w, 400, "source_id is required")
+					return
+				}
+				if pair.TargetID, err = strconv.ParseInt(r.URL.Query().Get("target_id"), 10, 64); err != nil {
+					writeErr(w, 400, "target_id is required")
+					return
+				}
+			}
+			if pair.SourceID <= 0 || pair.TargetID <= 0 || pair.SourceID == pair.TargetID {
+				writeErr(w, 400, "two distinct node ids are required")
+				return
+			}
+			first, err := h.resolveNote(strconv.FormatInt(pair.SourceID, 10))
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			second, err := h.resolveNote(strconv.FormatInt(pair.TargetID, 10))
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			if first == nil || second == nil {
+				fail(w, sql.ErrNoRows)
+				return
+			}
+			sourcePath, targetPath = first.Path, second.Path
+		}
+		var err error
+		if r.Method == "POST" {
+			err = storage.MuteConnection(h.DB, sourcePath, targetPath)
+		} else {
+			err = storage.UnmuteConnection(h.DB, sourcePath, targetPath)
+		}
+		if err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		if err = h.Service.RebuildLocked(); err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "a_path": sourcePath, "b_path": targetPath})
 	case "/pairing":
 		if method(w, r, "GET") {
 			writeJSON(w, map[string]string{"token": h.Activity.Token()})

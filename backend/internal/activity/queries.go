@@ -72,6 +72,9 @@ type NodeDetail struct {
 	Website
 	RelatedNodes []RelatedActivity `json:"related_nodes"`
 	RelatedNotes []RelatedActivity `json:"related_notes"`
+	// Muted counts connections this node hides, so the UI can say so instead of
+	// silently appearing to have lost evidence.
+	Muted int `json:"muted_connections"`
 }
 
 func querySessions(db *sql.DB, q Query) ([]Session, error) {
@@ -154,8 +157,14 @@ func GetWebsites(db *sql.DB, typ string, q Query) (WebsiteResult, error) {
 		return WebsiteResult{}, err
 	}
 	ids := map[string]int64{}
+	paths := map[int64]string{}
 	for _, n := range nodes {
 		ids[n.Path] = n.ID
+		paths[n.ID] = n.Path
+	}
+	muted, err := storage.MutedPairs(db)
+	if err != nil {
+		return WebsiteResult{}, err
 	}
 	rows, err := db.Query(`SELECT source_id,target_id FROM edges`)
 	if err != nil {
@@ -167,6 +176,9 @@ func GetWebsites(db *sql.DB, typ string, q Query) (WebsiteResult, error) {
 		if err = rows.Scan(&a, &b); err != nil {
 			rows.Close()
 			return WebsiteResult{}, err
+		}
+		if muted[storage.Pair(paths[a], paths[b])] {
+			continue
 		}
 		connections[a]++
 		connections[b]++
@@ -311,6 +323,15 @@ func GetNodeDetail(db *sql.DB, id int64) (*NodeDetail, error) {
 	}
 	sort.Strings(d.Browsers)
 	d.Pages = len(pages)
+	muted, err := storage.MutedPairs(db)
+	if err != nil {
+		return nil, err
+	}
+	for pair := range muted {
+		if pair[0] == node.Path || pair[1] == node.Path {
+			d.Muted++
+		}
+	}
 	rows, err := db.Query(`SELECT id,source_id,target_id,strength,relationship_type,source,reason,created_at FROM edges WHERE source_id=? OR target_id=? ORDER BY strength DESC,id LIMIT 100`, id, id)
 	if err != nil {
 		return nil, err
@@ -324,6 +345,9 @@ func GetNodeDetail(db *sql.DB, id int64) (*NodeDetail, error) {
 		other := e.SourceID
 		if other == id {
 			other = e.TargetID
+		}
+		if muted[storage.Pair(node.Path, byID[other].Path)] {
+			continue
 		}
 		related := RelatedActivity{byID[other], e}
 		if related.Node.Type == "note" {

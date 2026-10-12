@@ -6,11 +6,14 @@ import { duration } from "./ActivityPanel";
 export function ActivityInspector({
   nodeId,
   onOpen,
+  onChanged,
 }: {
   nodeId: number;
   onOpen: (id: number) => void;
+  onChanged?: () => Promise<void> | void;
 }) {
   const [detail, setDetail] = useState<ActivityNodeDetail | null>(null), [error, setError] = useState("");
+  const [revision, setRevision] = useState(0), [busy, setBusy] = useState(false);
   const node = detail?.node, usage = detail;
   const related = [...(detail?.related_notes ?? []), ...(detail?.related_nodes ?? [])];
   useEffect(() => {
@@ -33,7 +36,20 @@ export function ActivityInspector({
       active = false;
       clearInterval(timer);
     };
-  }, [nodeId]);
+  }, [nodeId, revision]);
+  const mute = async (otherId: number) => {
+    setBusy(true);
+    try {
+      await api.muteConnection(nodeId, otherId);
+      setRevision(n => n + 1);
+      setError("");
+      await onChanged?.();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="activity-inspector">
       {error && (
@@ -85,8 +101,20 @@ export function ActivityInspector({
                   <li key={reason}>{reason}</li>
                 ))}
               </ul>
+              {edge.source === "activity" && (
+                <button disabled={busy} onClick={() => mute(n.id)}>
+                  Mute this connection
+                </button>
+              )}
             </section>
           ))}
+          {!!detail?.muted_connections && (
+            <p>
+              {detail.muted_connections} muted connection
+              {detail.muted_connections === 1 ? "" : "s"} hidden here. Restore them
+              from the Activity Connections tab.
+            </p>
+          )}
         </>
       ) : (
         <p>Loading usage…</p>

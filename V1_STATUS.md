@@ -75,12 +75,17 @@ not a claim of production readiness or completion of V2/V3.
   metadata inspector and labeled graph source/node filters.
 - Extension event coalescing, heartbeat, persistent bounded backoff, safe status messages
   and private/unfocused/internal/excluded suppression tests.
+- Per-connection mutes keyed by stable node paths: hidden from the graph, website and
+  connection lists, and connection counts while usage totals, sessions, notes, and
+  explicit links are untouched. Reversible from the Connections tab, and restorable by
+  path after a node is pruned. Deleting activity history keeps mutes.
 - Synthetic Wikipedia/GeeksforGeeks/GitHub/Go/excluded fixtures exercise the actual browser
   UI, privacy deletion and note preservation. Real browser permissions/private detection
   remain best effort and were not manually enabled or validated.
 
 Latest checks: backend race suite/vet, frontend typecheck/build, all three Playwright
-workflows, and seven extension tests passed. A synthetic-data localhost preview was
+workflows (including mute and restore on both the connection list and the node
+inspector), and seven extension tests passed. A synthetic-data localhost preview was
 also exercised at desktop/mobile widths with no page errors or horizontal page overflow.
 The shared preview browser initially could not attach; once its default tab became
 available, the website accessibility tree and console/network logs were verified too.

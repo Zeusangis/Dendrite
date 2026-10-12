@@ -97,6 +97,15 @@ var Schema = []string{
  );
  INSERT INTO edge_evidence SELECT source_id,target_id,source,strength,relationship_type,reason FROM edges;
  CREATE INDEX activity_sessions_ended ON activity_sessions(ended_at);`,
+
+	// Mutes are keyed by stable node paths, not row ids, so a mute survives a
+	// graph rebuild, retention pruning, or an activity clear-and-recreate.
+	`CREATE TABLE IF NOT EXISTS muted_connections (
+ a_path TEXT NOT NULL,
+ b_path TEXT NOT NULL,
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(a_path,b_path)
+ );`,
 }
 
 // Migrate applies pending schema migrations. Safe to call on every startup.

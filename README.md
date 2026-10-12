@@ -125,6 +125,18 @@ precedence over activity evidence, then ordinary inferred links, then AI evidenc
 Other producers' evidence is retained so it can reappear when the winning evidence
 expires. Rebuilds preserve surviving node positions and edge identities.
 
+**Muting one connection.** Every automatic activity connection can be muted from
+**Websites → Explain connections**, from **Connections**, or from the activity node
+inspector. A muted connection disappears from the graph, from the website and
+connection lists, and from connection counts, while its usage totals, sessions, and
+Markdown notes are untouched. Muted connections are listed under **Activity →
+Connections** with a restore control, so hiding a connection is always reversible.
+Mutes are keyed by stable node identity rather than row IDs, so they survive graph
+rebuilds; a site stays hidden if you visit it again after its activity was pruned.
+Deleting activity history keeps your mutes. Muting applies only to activity-authored
+connections: explicit wikilinks and ordinary inferred note relationships are never
+affected by it.
+
 Privacy settings are enforced on the backend, including subdomain exclusions.
 **Saving exclusions deletes matching retained sessions**, and disabling browser
 metadata or window titles strips that metadata from retained history. Projections
@@ -155,6 +167,9 @@ messages show paused recording or connection errors without displaying the token
 - `GET /api/activity/recent`: privacy-safe sessions
 - `GET /api/activity/domains` and `/pages`: aggregated website usage
 - `GET /api/activity/nodes/:id`: sanitized metadata, usage and up to 100 explained relationships
+- `GET /api/activity/muted`: hidden connections with resolved nodes where they still exist
+- `POST /api/activity/muted`: mute a pair by `source_id` and `target_id` (idempotent)
+- `DELETE /api/activity/muted`: restore by `source_id`/`target_id`, or by `a_path`/`b_path` once a node is no longer retained
 - Existing `/summary`, `/series`, and `/api/edges/:id` remain compatible
 
 List parameters: `days` (up to 365, constrained by retention), `limit` (default 25,

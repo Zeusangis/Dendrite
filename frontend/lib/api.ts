@@ -1,4 +1,4 @@
-import type { ActivityNodeDetail, ActivityQuery, ActivityWebsiteResult, ActivityConfig, ActivitySeries, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
+import type { ActivityNodeDetail, ActivityQuery, ActivityWebsiteResult, ActivityConfig, MutedConnection, ActivitySeries, ActivityStatus, ActivitySummary, ActivityUsage, Backup, Edge, GraphSnapshot, HistoryState, Note, NoteDetail, RelatedNode, SearchFilters, SearchHit, Settings, SyncResult } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
  const res = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers }, cache: "no-store" });
@@ -18,6 +18,10 @@ export const api = {
  activityWebsites: (kind: "domains" | "pages", q: ActivityQuery) => request<ActivityWebsiteResult>(`/api/activity/${kind}?${activityParams(q)}`),
  activityNode: (id: number) => request<ActivityNodeDetail>(`/api/activity/nodes/${id}`),
  nodeActivity: (id: number) => request<ActivityUsage>(`/api/nodes/${id}/activity`),
+ mutedConnections: () => request<{muted: MutedConnection[]}>(`/api/activity/muted`),
+ muteConnection: (sourceId: number, targetId: number) => request<{ok: boolean}>(`/api/activity/muted`, json("POST", { source_id: sourceId, target_id: targetId })),
+ unmuteConnection: (sourceId: number, targetId: number) => request<{ok: boolean}>(`/api/activity/muted?${new URLSearchParams({ source_id: String(sourceId), target_id: String(targetId) })}`, json("DELETE")),
+ unmuteByPath: (aPath: string, bPath: string) => request<{ok: boolean}>(`/api/activity/muted?${new URLSearchParams({ a_path: aPath, b_path: bPath })}`, json("DELETE")),
  activityPairing: () => request<{token: string}>("/api/activity/pairing"),
  clearActivity: () => request<{deleted: boolean}>("/api/activity/data?confirm=true",json("DELETE")),
  notes: () => request<Note[]>("/api/notes"),

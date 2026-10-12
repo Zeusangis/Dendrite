@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -102,6 +103,110 @@ func TestWebsiteActivityAPI(t *testing.T) {
 	call(t, router, "DELETE", "/api/activity/data?confirm=true", nil, 200, nil)
 	call(t, router, "GET", "/api/activity/nodes/"+strconv.FormatInt(id, 10), nil, 404, nil)
 	call(t, router, "GET", "/api/nodes/"+strconv.FormatInt(noteID, 10), nil, 200, nil)
+}
+
+func nodePathOf(snap storage.GraphSnapshot, id int64) string {
+	for _, n := range snap.Nodes {
+		if n.ID == id {
+			return n.Path
+		}
+	}
+	return ""
+}
+
+func TestMuteConnectionAPI(t *testing.T) {
+	h, _ := setup(t)
+	collector, err := activity.New(h.DB, h.Service, noopSampler{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Activity = collector
+	router := h.Router()
+	at := time.Now().Add(-time.Minute)
+	sample := activity.Sample{App: "Chrome", WindowTitle: "Go tutorial", URL: "https://go.dev/"}
+	if err = collector.Observe(sample, at); err != nil {
+		t.Fatal(err)
+	}
+	if err = collector.Observe(sample, at.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var note storage.Note
+	call(t, router, "POST", "/api/notes", map[string]string{"title": "Go resources", "content": "# Go resources\n\n#golang"}, 201, &note)
+	call(t, router, "POST", "/api/sync", nil, 200, nil)
+	var pages activity.WebsiteResult
+	call(t, router, "GET", "/api/activity/pages?search=go.dev", nil, 200, &pages)
+	if len(pages.Pages) != 1 || pages.Pages[0].NodeID == 0 {
+		t.Fatal("page fixture missing", pages)
+	}
+	pageID := pages.Pages[0].NodeID
+	call(t, router, "POST", "/api/activity/muted", map[string]int64{"source_id": pageID, "target_id": note.ID}, 200, nil)
+	var muted struct {
+		Muted []storage.MutedConnection `json:"muted"`
+	}
+	call(t, router, "GET", "/api/activity/muted", nil, 200, &muted)
+	if len(muted.Muted) != 1 || muted.Muted[0].A == nil || muted.Muted[0].B == nil {
+		t.Fatal("muted pair not resolved", muted)
+	}
+	var detail activity.NodeDetail
+	call(t, router, "GET", "/api/activity/nodes/"+strconv.FormatInt(pageID, 10), nil, 200, &detail)
+	if len(detail.RelatedNotes) != 0 || detail.Muted != 1 {
+		t.Fatal("muted connection still visible in node detail", detail)
+	}
+	var snap storage.GraphSnapshot
+	call(t, router, "GET", "/api/graph", nil, 200, &snap)
+	mutedPair := storage.Pair(detail.Node.Path, note.Path)
+	for _, e := range snap.Edges {
+		if e.Source == "activity" && storage.Pair(nodePathOf(snap, e.SourceID), nodePathOf(snap, e.TargetID)) == mutedPair {
+			t.Fatal("muted connection still projected", e)
+		}
+	}
+	// Only that pair is hidden: the same note's go.dev domain connection survives.
+	sibling := false
+	for _, e := range snap.Edges {
+		if e.Source == "activity" && storage.Pair(nodePathOf(snap, e.SourceID), nodePathOf(snap, e.TargetID)) != mutedPair && (e.SourceID == note.ID || e.TargetID == note.ID) {
+			sibling = true
+		}
+	}
+	if !sibling {
+		t.Fatal("muting hid unrelated connections", snap.Edges)
+	}
+	// Validation and method handling.
+	call(t, router, "POST", "/api/activity/muted", map[string]int64{"source_id": pageID, "target_id": pageID}, 400, nil)
+	call(t, router, "POST", "/api/activity/muted", map[string]int64{"source_id": pageID, "target_id": 999999}, 404, nil)
+	call(t, router, "POST", "/api/activity/muted", map[string]interface{}{"source_id": pageID}, 400, nil)
+	call(t, router, "DELETE", "/api/activity/muted", nil, 400, nil)
+	call(t, router, "PUT", "/api/activity/muted", nil, 405, nil)
+	call(t, router, "DELETE", "/api/activity/muted?a_path=only-one", nil, 400, nil)
+	// A mute can also be lifted by path once its activity node is long pruned.
+	call(t, router, "DELETE", "/api/activity/muted?a_path="+url.QueryEscape(detail.Node.Path)+"&b_path="+url.QueryEscape(note.Path), nil, 200, nil)
+	call(t, router, "POST", "/api/activity/muted", map[string]int64{"source_id": pageID, "target_id": note.ID}, 200, nil)
+	// Restoring brings the connection back and empties the list.
+	call(t, router, "DELETE", "/api/activity/muted?source_id="+strconv.FormatInt(pageID, 10)+"&target_id="+strconv.FormatInt(note.ID, 10), nil, 200, nil)
+	call(t, router, "GET", "/api/activity/muted", nil, 200, &muted)
+	if len(muted.Muted) != 0 {
+		t.Fatal("unmute did not clear the pair", muted)
+	}
+	call(t, router, "GET", "/api/graph", nil, 200, &snap)
+	restored := false
+	for _, e := range snap.Edges {
+		if e.Source == "activity" && e.RelationshipType == activity.EdgeConcept {
+			restored = true
+		}
+	}
+	if !restored {
+		t.Fatal("restored connection missing", snap.Edges)
+	}
+	call(t, router, "GET", "/api/activity/nodes/"+strconv.FormatInt(pageID, 10), nil, 200, &detail)
+	if len(detail.RelatedNotes) != 1 || detail.Muted != 0 {
+		t.Fatal("restore did not update node detail", detail)
+	}
+	// Clearing activity leaves no stale mutes behind for recreated nodes.
+	call(t, router, "POST", "/api/activity/muted", map[string]int64{"source_id": pageID, "target_id": note.ID}, 200, nil)
+	call(t, router, "DELETE", "/api/activity/data?confirm=true", nil, 200, nil)
+	call(t, router, "GET", "/api/activity/muted", nil, 200, &muted)
+	if len(muted.Muted) != 1 {
+		t.Fatal("clear should keep the mute so a revisit stays hidden", muted)
+	}
 }
 
 func TestActivityControlsGraphAndPrivacy(t *testing.T) {

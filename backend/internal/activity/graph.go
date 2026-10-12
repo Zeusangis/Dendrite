@@ -191,6 +191,12 @@ func Rebuild(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	// Mutes only suppress activity-authored connections; explicit links and
+	// ordinary inferred note relationships stay intact.
+	muted, err := storage.MutedPairs(db)
+	if err != nil {
+		return err
+	}
 	derivedNodes := map[string]*derived{}
 	links := map[string]*evidence{}
 	addNode := func(typ, key, title string, s Session) string {
@@ -226,6 +232,9 @@ func Rebuild(db *sql.DB) error {
 		}
 		if a > b {
 			a, b = b, a
+		}
+		if muted[storage.Pair(a, b)] {
+			return
 		}
 		key := a + "|" + b
 		v := links[key]
@@ -333,6 +342,9 @@ func Rebuild(db *sql.DB) error {
 			}
 			matched := strongestMatch(concepts, node)
 			if matched == nil {
+				continue
+			}
+			if muted[storage.Pair(note.Path, node.Key)] {
 				continue
 			}
 			a, b := note.ID, node.ID

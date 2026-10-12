@@ -65,7 +65,7 @@ function ActivityChart({ series, metric }: { series: ActivitySeries; metric: Cha
  </div>;
 }
 
-export function ActivityPanel({ onClose, onOpen, onChanged }: { onClose: () => void; onOpen: (id: number) => void; onChanged: () => Promise<void> }) {
+export function ActivityPanel({ onClose, onOpen, onChanged }: { onClose: () => void; onOpen: (id: number) => void; onChanged: () => void }) {
  const [status, setStatus] = useState<ActivityStatus | null>(null), [summary, setSummary] = useState<ActivitySummary | null>(null), [series, setSeries] = useState<ActivitySeries | null>(null), [draft, setDraft] = useState<ActivityConfig | null>(null);
  const [days, setDays] = useState(7), [granularity, setGranularity] = useState<"day" | "week">("day"), [metric, setMetric] = useState<ChartMetric>("apps");
  const [view, setView] = useState<"overview"|"websites"|"connections">("overview"), [websiteRevision, setWebsiteRevision] = useState(0);
@@ -96,7 +96,7 @@ export function ActivityPanel({ onClose, onOpen, onChanged }: { onClose: () => v
    {view==="overview" && <><label>Group by <select aria-label="Chart granularity" value={granularity} onChange={e => setGranularity(e.target.value as "day" | "week")}><option value="day">Days</option><option value="week">Weeks</option></select></label>
    <div className="metric-tabs" role="group" aria-label="Chart comparison"><button aria-pressed={metric === "apps"} onClick={() => setMetric("apps")}>App usage</button><button aria-pressed={metric === "active"} onClick={() => setMetric("active")}>Active vs idle</button><button aria-pressed={metric === "switches"} onClick={() => setMetric("switches")}>Context switches</button></div></>}
   </div>
-  {view!=="overview"&&<WebsiteExplorer days={days} status={status} connections={view==="connections"} revision={websiteRevision} onOpen={onOpen}/>}
+  {view!=="overview"&&<WebsiteExplorer days={days} status={status} connections={view==="connections"} revision={websiteRevision} onOpen={onOpen} onChanged={()=>{setWebsiteRevision(n=>n+1);onChanged();}}/>}
   {view==="overview" && series && <section className="comparison" aria-label="Usage comparisons"><div className="comparison-heading"><div><h3>{metric === "apps" ? "App usage" : metric === "active" ? "Active and idle time" : "Context switches"}</h3><p>{granularity === "day" ? "Daily" : "Weekly"} totals · {days}-day range</p></div></div><ActivityChart series={series} metric={metric} />
    {granularity === "week" && <p className="chart-note">Weeks at the range boundaries may be partial; totals include only dates in the selected range.</p>}
    {metric === "switches" && <p className="chart-note">Switches count observed active app changes within one recording run; pauses and long gaps are excluded.</p>}
