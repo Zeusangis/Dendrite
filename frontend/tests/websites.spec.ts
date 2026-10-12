@@ -38,6 +38,8 @@ test("website explorer, mute/restore, explanations, graph filters and privacy cl
  await expect.poll(async()=>(await detail(pageId)).muted_connections).toBe(1);
  await expect.poll(edges).toBe(baseline-1);
  await expect.poll(async()=>(await detail(pageId)).sessions).toBeGreaterThan(0);
+ // The panel stays open on the node the user just acted in.
+ await expect(page.getByRole("region",{name:"Website connection explanations"})).toContainText("muted connection");
  await page.getByRole("button",{name:"Connections",exact:true}).click();
  await expect(page.getByRole("region",{name:"Muted connections"})).toContainText("Go programming language");
  await page.getByRole("button",{name:"Restore this connection",exact:true}).click();

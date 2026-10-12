@@ -18,11 +18,14 @@ export function WebsiteExplorer({ days, status, connections, revision, onOpen, o
  },[connections,revision]);
  useEffect(()=>{
   let active=true;let sequence=0;
-  setResult(null);setDetail(null);
+  // Only the list is reset here: muting bumps the revision, and clearing the
+  // selection would close the very panel the user just acted in.
+  setResult(null);
   const load=async()=>{const current=++sequence;try{const r=await api.activityWebsites(kind,{days,limit:25,offset,sort,search});if(active&&current===sequence){setResult(r);setError("");}}catch(e){if(active&&current===sequence)setError(String(e));}};
   const delay=setTimeout(load,200),timer=setInterval(load,5000);
   return()=>{active=false;clearTimeout(delay);clearInterval(timer);};
  },[days,kind,offset,sort,search,revision]);
+ useEffect(()=>{setDetail(null);},[kind,search,days]);
  const inspect=async(id:number)=>{try{setDetail(await api.activityNode(id));setError("");}catch(e){setError(String(e));}};
  const setHidden=async(sourceId:number,targetId:number,hidden:boolean)=>{
   setBusy(true);
