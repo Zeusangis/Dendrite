@@ -14,6 +14,7 @@ frontend/.next/
 frontend/out/
 frontend/test-results/
 frontend/playwright-report/
+browser-extension/dist-firefox/
 
 # Go
 backend/dendrite

@@ -130,8 +130,11 @@ These are deliberate limits or further hardening work, not silently completed:
 - Title-based wikilinks assume unique titles; rename does not automatically rewrite
   incoming wikilinks or rename filenames. Front matter parsing is not full YAML.
 - Search is lexical FTS, not semantic search or an arbitrary query language.
-- Coverage is Chromium plus Go integration tests. Safari/Firefox, comprehensive
-  accessibility, sustained performance, and broader fault injection remain.
+- Coverage is Chromium plus Go integration tests. Firefox is supported through the
+  packaged extension (Mozilla's validator reports zero findings for its manifest),
+  but Firefox was never launched with the extension loaded in this checkout, so its
+  runtime behavior is untested. Safari, comprehensive accessibility, sustained
+  performance, and broader fault injection remain.
 - Local single-user service only; no network authentication or public deployment.
 
 ## Added after V1: requested activity-tracking slice
@@ -150,6 +153,12 @@ These are deliberate limits or further hardening work, not silently completed:
   ranges, accessible exact-data tables, recent timeline, privacy controls, and pairing.
 - Opt-in Chromium MV3 integration: authenticated local hints, focused active tabs
   only, private suppression, domain exclusions, and no content scripts.
+- Firefox support for the same extension: a packaged event-page manifest, a
+  promise-based API namespace so Firefox's callback-only `chrome` object is not
+  awaited, and a backend origin gate that accepts `moz-extension://` as well as
+  `chrome-extension://` and `safari-web-extension://`. Because the native sampler
+  cannot read a Firefox window's URL, the extension is the only source of Firefox
+  domains.
 - Backend deterministic activity and API integration tests, extension privacy tests,
   and a Chromium dashboard workflow for day/week charts, metric selection, and privacy
   controls. Tests disable live recording.

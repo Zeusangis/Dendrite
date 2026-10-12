@@ -24,6 +24,28 @@ type Handler struct {
 	Activity *activity.Collector
 }
 
+// extensionOrigin recognizes the origin a locally installed browser extension
+// sends. Chromium uses chrome-extension://, Firefox uses moz-extension://, and
+// Safari web extensions use safari-web-extension://; accepting only the Chromium
+// prefix silently rejected a paired Firefox extension. The pairing token, not the
+// origin, remains the real gate: any of these origins still needs a valid bearer
+// token to reach /api/activity/browser.
+func extensionOrigin(origin string) bool {
+	for _, scheme := range []string{"chrome-extension://", "moz-extension://", "safari-web-extension://"} {
+		if strings.HasPrefix(origin, scheme) {
+			return true
+		}
+	}
+	return false
+}
+
+func allowExtensionOrigin(w http.ResponseWriter, origin string) {
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Add("Vary", "Origin")
+}
+
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
@@ -89,16 +111,12 @@ func (h *Handler) Router() http.Handler {
 		origin := r.Header.Get("Origin")
 		parsed, originErr := url.Parse(origin)
 		trusted := originErr == nil && parsed.User == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && (parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "::1")
-		extension := strings.HasPrefix(origin, "chrome-extension://") && r.URL.Path == "/api/activity/browser" && h.Activity != nil && r.Header.Get("Authorization") == "Bearer "+h.Activity.Token()
+		extension := extensionOrigin(origin) && r.URL.Path == "/api/activity/browser" && h.Activity != nil && r.Header.Get("Authorization") == "Bearer "+h.Activity.Token()
 		if extension {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			allowExtensionOrigin(w, origin)
 		}
-		if r.Method == "OPTIONS" && strings.HasPrefix(origin, "chrome-extension://") && r.URL.Path == "/api/activity/browser" {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" && extensionOrigin(origin) && r.URL.Path == "/api/activity/browser" {
+			allowExtensionOrigin(w, origin)
 			w.WriteHeader(204)
 			return
 		}

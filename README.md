@@ -87,16 +87,40 @@ requests to that address during development.
 
 ## Browser extension (optional)
 
-The unpacked Chromium extension reports active-tab metadata to the local
-backend. It does not send page contents or keystrokes.
+The unpacked extension reports active-tab metadata to the local backend. It does
+not send page contents or keystrokes. It runs in Chromium browsers and in Firefox,
+and **for Firefox it is the only source of website domains**: the native sampler's
+document-URL lookup yields nothing for a Firefox window, so Firefox domains reach
+the graph only through the extension.
 
-1. Open Chrome, Brave, or Edge extension settings.
+For Chrome, Brave, or Edge:
+
+1. Open the browser's extension settings.
 2. Enable **Developer mode** and choose **Load unpacked**.
 3. Select [`browser-extension/`](browser-extension/).
 4. In Dendrite, open **Activity → Privacy, retention & browser setup** and
    reveal the pairing token.
 5. Paste the token into the extension options, select the browser name, and
    explicitly enable recording.
+
+For Firefox, package it first, because Firefox has no
+`background.service_worker` and cannot load the Chromium manifest:
+
+```bash
+bash scripts/package-firefox-extension.sh
+```
+
+Then open `about:debugging#/runtime/this-firefox`, choose **Load Temporary
+Add-on**, and select `browser-extension/dist-firefox/manifest.json`. Temporary
+add-ons are removed when Firefox restarts, and must be loaded again; a permanent
+install requires signing the packaged directory with its bundled `gecko.id`.
+Pair it exactly as above and set **Browser application name** to Firefox, because
+the name you select is what attributes domains in the graph.
+
+Each browser reports a different extension origin — Firefox sends
+`moz-extension://`, Chromium `chrome-extension://`, and Safari
+`safari-web-extension://`. The backend accepts all three for the browser endpoint,
+and every one of them still requires the pairing token.
 
 ### Website activity and automatic connections
 
@@ -146,9 +170,10 @@ These privacy deletions cannot be undone.
 
 | Browser/source | Website metadata and limitations |
 | --- | --- |
-| macOS native sampler | Application/idle tracking; focused titles need Accessibility permission. Safari/Chromium document URLs are best effort through Accessibility; Firefox and browsers that omit that attribute may provide titles only. |
+| macOS native sampler | Application/idle tracking; focused titles need Accessibility permission. Safari/Chromium document URLs are best effort through Accessibility. A Firefox window yielded no document URL (Accessibility was not granted in testing here), so native Firefox samples carry titles only and its domains come from the extension; browsers that omit that attribute behave the same way. |
 | Chrome, Brave, Edge extension | Focused HTTP(S) tab only, explicit enable/pairing required. Configure the matching browser name. Incognito tabs/windows, unfocused windows, internal URLs, and extension exclusions send suppression hints. |
-| Safari / Firefox extensions | This Chromium Manifest V3 extension is not packaged for Safari or Firefox. |
+| Firefox extension | Same behavior and the same pairing token, loaded from the packaged manifest in `browser-extension/dist-firefox/`. Firefox temporary add-ons must be reloaded after a restart. |
+| Safari | Not packaged. A Safari web extension needs an Xcode project and a signed bundle, which this repository does not provide. |
 | Other platforms | Native collection is unavailable. Extension hints enrich native foreground samples; they do not independently generate timed sessions. |
 
 Native private-window detection is **best effort** based on available window metadata.

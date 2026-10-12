@@ -283,3 +283,85 @@ func TestActivityControlsGraphAndPrivacy(t *testing.T) {
 	cfg.IdleSeconds = 0
 	call(t, router, "PUT", "/api/activity/config", cfg, 400, nil)
 }
+
+// The extension is the only source that can name a Firefox domain: Firefox does
+// not expose a window document URL to the native sampler, so a paired Firefox
+// extension must be able to reach the browser endpoint. Each browser reports a
+// different extension origin, and accepting only chrome-extension:// silently
+// rejected a pairing that the user had just completed.
+func TestBrowserHintOrigins(t *testing.T) {
+	h, _ := setup(t)
+	collector, err := activity.New(h.DB, h.Service, noopSampler{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Activity = collector
+	router := h.Router()
+	post := func(origin, token, payload string) (int, string) {
+		req := httptest.NewRequest("POST", "/api/activity/browser", strings.NewReader(payload))
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+	hint := `{"app":"Firefox","url":"https://mozilla.org/firefox/notes?secret=x#y","title":"Firefox notes","focused":true}`
+	for _, origin := range []string{"chrome-extension://abcdef", "moz-extension://0f1e2d3c-firefox", "safari-web-extension://abcdef"} {
+		if code, body := post(origin, collector.Token(), hint); code != 200 {
+			t.Fatalf("%s rejected with a valid token: %d %s", origin, code, body)
+		}
+	}
+	// The origin is defence in depth; the pairing token stays the real gate, and
+	// an ordinary website is never trusted even when it guesses the token.
+	if code, _ := post("moz-extension://0f1e2d3c-firefox", "wrong", hint); code == 200 {
+		t.Fatal("a Firefox origin bypassed the pairing token")
+	}
+	if code, body := post("https://evil.example", collector.Token(), hint); code != 403 {
+		t.Fatalf("an untrusted website origin was accepted: %d %s", code, body)
+	}
+	// Firefox preflights the JSON POST, so the preflight must be answered too.
+	req := httptest.NewRequest("OPTIONS", "/api/activity/browser", nil)
+	req.Header.Set("Origin", "moz-extension://0f1e2d3c-firefox")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != "moz-extension://0f1e2d3c-firefox" {
+		t.Fatalf("Firefox preflight refused: %d %v", w.Code, w.Header())
+	}
+	// End to end: the hint supplies the domain the native sampler cannot read for
+	// Firefox, and the session is attributed to Firefox rather than a Chromium app.
+	if code, body := post("moz-extension://0f1e2d3c-firefox", collector.Token(), hint); code != 200 {
+		t.Fatalf("Firefox hint rejected: %d %s", code, body)
+	}
+	// The hint is time-boxed, so the native samples must follow it.
+	at := time.Now()
+	native := activity.Sample{App: "Firefox", AppID: "org.mozilla.firefox", WindowTitle: "Native Firefox title"}
+	if err = collector.Observe(native, at); err != nil {
+		t.Fatal(err)
+	}
+	if err = collector.Observe(native, at.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	call(t, router, "POST", "/api/sync", nil, 200, nil)
+	var sites activity.WebsiteResult
+	call(t, router, "GET", "/api/activity/domains?search=mozilla", nil, 200, &sites)
+	if sites.Total != 1 || sites.Domains[0].Domain != "mozilla.org" {
+		t.Fatalf("Firefox domain not tracked: %+v", sites)
+	}
+	if len(sites.Domains[0].Browsers) != 1 || sites.Domains[0].Browsers[0] != "Firefox" {
+		t.Fatalf("Firefox domain attributed to the wrong browser: %+v", sites.Domains[0].Browsers)
+	}
+	var detail activity.NodeDetail
+	call(t, router, "GET", "/api/activity/nodes/"+strconv.FormatInt(sites.Domains[0].NodeID, 10), nil, 200, &detail)
+	if detail.Domain != "mozilla.org" || detail.Sessions != 1 {
+		t.Fatalf("unexpected Firefox node detail: %+v", detail)
+	}
+	// The URL is still sanitized on ingestion, whatever the origin claimed.
+	if strings.Contains(call(t, router, "GET", "/api/activity/recent?search=mozilla", nil, 200, nil).Body.String(), "?secret") {
+		t.Fatal("Firefox hint leaked a query string")
+	}
+}

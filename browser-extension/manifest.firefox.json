@@ -1,0 +1,19 @@
+{
+ "manifest_version": 3,
+ "name": "Dendrite Local Activity",
+ "version": "0.1.0",
+ "description": "Opt-in active tab metadata for your local Dendrite graph. No page contents or keystrokes.",
+ "permissions": ["tabs", "storage", "alarms"],
+ "host_permissions": ["http://127.0.0.1:8080/*", "http://localhost:8080/*"],
+ "background": { "scripts": ["background.js"] },
+ "options_ui": { "page": "options.html", "open_in_tab": true },
+ "action": { "default_title": "Dendrite activity settings" },
+ "incognito": "not_allowed",
+ "browser_specific_settings": {
+  "gecko": {
+   "id": "dendrite-activity@localhost",
+   "strict_min_version": "115.0",
+   "data_collection_permissions": { "required": ["browsingActivity"] }
+  }
+ }
+}
